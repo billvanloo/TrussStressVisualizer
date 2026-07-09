@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Truss Stress Visualizer</title>
+<style>
+  :root{
+    --paper:#F6F5F0; --grid-minor:#E7E5DC; --grid-major:#D8D5C8;
+    --ink:#23272C; --ink-soft:#5A6068; --line:#C9C6BA;
+    --dykem:#1D5FA8; --dykem-soft:#E3ECF7;
+    --tension:#1D5FA8; --compression:#B3402F;
+    --brass:#B08A2E;
+    --pass:#2E7D46; --fail:#B3402F;
+    --dro-bg:#1D2126; --dro-amber:#FFB000; --dro-dim:#7A6428;
+    --font-ui:"Avenir Next","Segoe UI","Trebuchet MS",system-ui,sans-serif;
+    --font-mono:ui-monospace,"Cascadia Mono","SF Mono",Consolas,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:var(--font-ui);color:var(--ink);background:var(--paper);display:flex;flex-direction:column;overflow:hidden}
+
+  header{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:2px solid var(--ink);flex-wrap:wrap}
+  .titleblock{display:flex;flex-direction:column;line-height:1.1}
+  .titleblock .t1{font-size:15px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+  .titleblock .t2{font-size:10px;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase}
+  .spacer{flex:1}
+  .namewrap{display:flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft)}
+  .namewrap input{font:14px var(--font-ui);border:none;border-bottom:1.5px solid var(--ink);background:transparent;padding:3px 4px;width:150px;outline:none}
+  .hbtns{display:flex;gap:6px;flex-wrap:wrap}
+  .hbtns button{font:600 11px var(--font-ui);letter-spacing:.05em;padding:7px 10px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);border-radius:3px;cursor:pointer}
+  .hbtns button:hover{background:var(--ink);color:var(--paper)}
+
+  main{flex:1;display:flex;min-height:0}
+  #palette{width:168px;border-right:1.5px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;background:#F1EFE8}
+  .pal-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:6px 0 2px}
+  .toolbtn{border:1.5px solid var(--ink);background:#fff;border-radius:4px;padding:8px;cursor:pointer;font:600 11px var(--font-ui);letter-spacing:.04em;text-transform:uppercase;text-align:left}
+  .toolbtn:hover,.toolbtn.armed{background:var(--ink);color:#fff}
+  .toolbtn.danger{border-color:var(--fail);color:var(--fail)}
+  .toolbtn.danger:hover,.toolbtn.danger.armed{background:var(--fail);color:#fff}
+  select,.palinput{font:13px var(--font-ui);padding:6px;border:1.5px solid var(--line);border-radius:3px;background:#fff;width:100%}
+  .palnum{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-soft)}
+  .palnum input{font:13px var(--font-mono);width:70px;padding:4px 6px;border:1.5px solid var(--line);border-radius:3px}
+  .palnote{font-size:10px;line-height:1.45;color:var(--ink-soft)}
+  .lmode{display:flex;border:1.5px solid var(--ink);border-radius:3px;overflow:hidden}
+  .lmode button{flex:1;font:600 10px var(--font-ui);letter-spacing:.03em;text-transform:uppercase;padding:6px 2px;border:none;background:transparent;color:var(--ink);cursor:pointer}
+  .lmode button.on{background:var(--ink);color:var(--paper)}
+  .stepbtns{display:flex;gap:5px}
+  .stepbtns button{flex:1;font:700 14px var(--font-mono);padding:5px;border:1.5px solid var(--ink);background:#fff;border-radius:3px;cursor:pointer}
+  .stepbtns button:hover{background:var(--ink);color:#fff}
+  label.chk{display:flex;align-items:flex-start;gap:6px;font-size:11px;line-height:1.4;color:var(--ink)}
+  .legend{font-size:10.5px;line-height:1.7;color:var(--ink)}
+  .legend .sw{display:inline-block;width:22px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px}
+
+  #stage{flex:1;display:flex;flex-direction:column;min-width:0}
+  #canvasWrap{flex:1;position:relative;min-height:0}
+  canvas#board{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+  #hint{position:absolute;left:12px;top:10px;font:11px var(--font-ui);color:var(--ink-soft);background:rgba(246,245,240,.88);padding:4px 8px;border-radius:3px;pointer-events:none;max-width:70%}
+  #toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:var(--ink);color:var(--paper);font:12px var(--font-ui);padding:7px 14px;border-radius:4px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:80%}
+
+  #dro{display:flex;align-items:stretch;background:var(--dro-bg);border-top:3px solid var(--ink);padding:8px 12px;flex-wrap:wrap}
+  .dro-cell{display:flex;flex-direction:column;justify-content:center;padding:2px 16px 2px 6px;border-right:1px solid #343A41;min-width:110px}
+  .dro-cell:last-of-type{border-right:none}
+  .dro-label{font:600 9px var(--font-ui);letter-spacing:.16em;text-transform:uppercase;color:#8B929B}
+  .dro-val{font:700 20px var(--font-mono);color:var(--dro-amber);text-shadow:0 0 6px rgba(255,176,0,.35);white-space:nowrap}
+  .dro-val.dim{color:var(--dro-dim);text-shadow:none}
+  .dro-val.bad{color:#FF8A6B}
+  .dro-msg{flex:1;display:flex;align-items:center;font:12px var(--font-ui);color:#C7CCD2;padding-left:14px;min-width:180px}
+  .dro-msg.err{color:#FF8A6B}
+
+  #fbdPanel{width:270px;border-left:1.5px solid var(--line);background:#F1EFE8;display:flex;flex-direction:column;min-height:0}
+  #fbdPanel h3{font:700 11px var(--font-ui);letter-spacing:.1em;text-transform:uppercase;padding:10px 12px 6px}
+  #fbdCanvas{width:100%;aspect-ratio:1;background:var(--paper);border-top:1.5px solid var(--line);border-bottom:1.5px solid var(--line)}
+  #fbdInfo{flex:1;overflow-y:auto;padding:10px 12px;font:12px var(--font-mono);line-height:1.8}
+  #fbdInfo .t{color:var(--tension);font-weight:700}
+  #fbdInfo .c{color:var(--compression);font-weight:700}
+  #fbdEmpty{padding:12px;font-size:11.5px;color:var(--ink-soft);line-height:1.5}
+
+  #modalBack{position:fixed;inset:0;background:rgba(35,39,44,.5);display:none;align-items:center;justify-content:center;z-index:50}
+  #modalBack.open{display:flex}
+  #modal{background:var(--paper);border:2px solid var(--ink);border-radius:5px;max-width:560px;width:92%;max-height:84vh;overflow-y:auto;padding:22px}
+  #modal h2{font-size:16px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px}
+  #modal p,#modal li{font-size:13.5px;line-height:1.6;margin-bottom:8px}
+  #modal ul{padding-left:20px;margin-bottom:10px}
+  #modal .close{float:right;font:700 13px var(--font-ui);border:1.5px solid var(--ink);background:none;border-radius:3px;padding:5px 12px;cursor:pointer}
+
+  #report{display:none}
+  @media print{
+    body>*{display:none !important}
+    body{overflow:visible}
+    #report{display:block !important;font-family:var(--font-ui);color:#000}
+    #report .rb{border:2px solid #000;padding:14px 18px;margin-bottom:12px}
+    #report h1{font-size:18px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:2px}
+    #report h2{font-size:13px;margin:12px 0 4px}
+    #report .sub{font-size:11px;letter-spacing:.06em;color:#444;margin-bottom:10px}
+    #report table{width:100%;border-collapse:collapse;font-size:11px;margin:6px 0}
+    #report th,#report td{border:1px solid #000;padding:4px 7px;text-align:left}
+    #report th{background:#eee;font-size:9px;letter-spacing:.08em;text-transform:uppercase}
+    #report img{max-width:100%;border:1px solid #000}
+    #report .sig{margin-top:22px;font-size:12px}
+    #report .sig span{display:inline-block;border-top:1px solid #000;min-width:220px;padding-top:3px;margin-right:40px}
+  }
+
+  @media (max-width:900px){
+    #palette{width:140px}
+    #fbdPanel{width:220px}
+    .dro-cell{min-width:92px}
+    .dro-val{font-size:16px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="titleblock">
+    <span class="t1">Truss Stress Visualizer</span>
+    <span class="t2">Engineering Education · Statics &amp; Structures</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="namewrap">Name <input id="studentName" placeholder="Your name" maxlength="40"></div>
+  <div class="hbtns">
+    <button id="btnPng">Export image</button>
+    <button id="btnReport">Report / PDF</button>
+    <button id="btnSave">Save</button>
+    <button id="btnLoad">Load</button>
+    <button id="btnHelp">?</button>
+  </div>
+  <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+</header>
+
+<main>
+  <div id="palette">
+    <div class="pal-label">Tools</div>
+    <button class="toolbtn armed" id="toolJoint">● Add joint</button>
+    <button class="toolbtn" id="toolMember">╱ Add member</button>
+    <button class="toolbtn" id="toolMove">✥ Move joint</button>
+    <button class="toolbtn" id="toolInspect">⊕ Inspect joint</button>
+    <button class="toolbtn danger" id="toolDelete">✕ Remove</button>
+    <button class="toolbtn" id="toolClear">Clear all</button>
+
+    <div class="pal-label">Load case</div>
+    <div class="lmode">
+      <button id="lmVsmt" class="on">Tester</button>
+      <button id="lmMoving">Moving</button>
+    </div>
+    <div id="vsmtCtl">
+      <div class="palnum" style="margin-top:6px">Applied <input id="appliedLoad" type="number" value="100" min="1" max="2000" step="10"> N</div>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="twoTrussChk" checked> Two truss planes — each side carries half the tester load</label>
+    </div>
+    <div id="movingCtl" style="display:none">
+      <div class="palnum" style="margin-top:6px">Load <input id="movingLoad" type="number" value="100" min="1" max="2000" step="10"> N</div>
+      <div class="pal-label">Position</div>
+      <div class="stepbtns"><button id="stepL">◀</button><button id="stepR">▶</button></div>
+      <div class="palnote">Steps the load across the deck joints, like a vehicle crossing.</div>
+    </div>
+
+    <div class="pal-label">Material (per-member limit)</div>
+    <select id="materialSel">
+      <option value="45">Balsa — 45 N</option>
+      <option value="150">Pine — 150 N</option>
+      <option value="200">Birch — 200 N</option>
+      <option value="90" selected>PLA (3D printed) — 90 N</option>
+      <option value="custom">Custom…</option>
+    </select>
+    <div class="palnum">Limit <input id="limitInput" type="number" value="90" min="1" max="5000" step="5"> N</div>
+    <div class="palnote">Starting values — calibrate from your own break-test data per material and cross-section.</div>
+
+    <div class="pal-label">Material budget</div>
+    <div class="palnum">Budget <input id="budgetInput" type="number" value="60" min="5" max="500" step="5"> in</div>
+
+    <div class="pal-label">Legend</div>
+    <div class="legend">
+      <span class="sw" style="background:var(--tension)"></span>Tension (pulls)<br>
+      <span class="sw" style="background:var(--compression)"></span>Compression (pushes)<br>
+      Thicker = closer to its limit<br>
+      ✕ = member over limit
+    </div>
+  </div>
+
+  <div id="stage">
+    <div id="canvasWrap">
+      <canvas id="board"></canvas>
+      <div id="hint">Span: 6.00 in between supports (pin ▲ left, roller ○ right). Tap the sheet to add joints on the ½-inch grid; use the Member tool to connect them.</div>
+      <div id="toast"></div>
+    </div>
+    <div id="dro">
+      <div class="dro-cell"><span class="dro-label">Status</span><span class="dro-val" id="droStatus">—</span></div>
+      <div class="dro-cell"><span class="dro-label">Max tension</span><span class="dro-val" id="droMaxT">—</span></div>
+      <div class="dro-cell"><span class="dro-label">Max compression</span><span class="dro-val" id="droMaxC">—</span></div>
+      <div class="dro-cell"><span class="dro-label">Predicted failure</span><span class="dro-val" id="droFail">—</span></div>
+      <div class="dro-cell"><span class="dro-label">Length / budget</span><span class="dro-val" id="droLen">—</span></div>
+      <div class="dro-msg" id="droMsg"></div>
+    </div>
+  </div>
+
+  <div id="fbdPanel">
+    <h3>Free-body diagram</h3>
+    <canvas id="fbdCanvas" width="270" height="270"></canvas>
+    <div id="fbdEmpty">Choose the Inspect tool and tap any joint to see the forces balancing there.</div>
+    <div id="fbdInfo"></div>
+  </div>
+</main>
+
+<div id="modalBack">
+  <div id="modal">
+    <button class="close" id="modalClose">Close</button>
+    <h2>How to use the visualizer</h2>
+    <p><strong>The setup mirrors the class bridge project:</strong> a 6-inch span between a pin support (left, ▲) and a roller (right, ○). The Tester load case models the Vernier tester's plate pulling straight down at the center of your deck, and predicts the load at which your first member fails.</p>
+    <p><strong>Build:</strong> tap the sheet to add joints (they snap to the ½-inch grid). Switch to the Member tool and tap two joints to connect them. The bottom row of joints between the supports is your deck.</p>
+    <p><strong>Read it:</strong> blue members are in tension (being stretched), red members are in compression (being squeezed). Thicker lines are closer to their limit. A member past its limit gets an ✕.</p>
+    <ul>
+      <li>A solvable truss follows <strong>2 × joints = members + 3</strong>. Too few members → mechanism (collapses). Too many → indeterminate (can't be solved by the method of joints).</li>
+      <li>The Inspect tool shows the free-body diagram at any joint — the same picture you draw for method-of-joints calculations. The vector sum is zero: that's equilibrium.</li>
+      <li>Forces here are ideal 2D truss values: members only carry axial load, joints are pins. Your real bridge has glue joints, member bending, and imperfections — expect real failure loads to differ. The <em>pattern</em> of which members work hardest is the insight.</li>
+    </ul>
+    <p><strong>Moving load:</strong> steps a point load across the deck joints so you can watch member forces shift as a load crosses — some members even flip between tension and compression.</p>
+  </div>
+</div>
+
+<div id="report"></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   SOLVER CORE (unit-tested separately — keep in sync with solver.js)
+   ===================================================================== */
+function tDist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+function solveTruss(state){
+  const nodes=state.nodes, members=state.members;
+  const j=nodes.length, m=members.length;
+  const res={status:'ok',message:'',forces:{},reactions:null,maxT:0,maxC:0,totalLength:0,residual:0};
+  if (j<2 || m<1){ res.status='empty'; res.message='Add joints and members to form a truss.'; return res; }
+  const nodeById={}; nodes.forEach(n=>nodeById[n.id]=n);
+  if (!nodeById[state.pinNode] || !nodeById[state.rollerNode]){ res.status='unstable'; res.message='Supports are missing.'; return res; }
+  for (const mb of members){
+    if (!nodeById[mb.a]||!nodeById[mb.b]){ res.status='unstable'; res.message='A member references a missing joint.'; return res; }
+    res.totalLength += tDist(nodeById[mb.a], nodeById[mb.b]);
+  }
+  if (2*j > m+3){
+    res.status='mechanism';
+    const need=2*j-3-m;
+    res.message='This truss is a mechanism — it will collapse. It needs '+need+' more member'+(need>1?'s':'')+' (or fewer joints) to be stable. Rule: 2 × joints = members + 3.';
+    return res;
+  }
+  if (2*j < m+3){
+    res.status='indeterminate';
+    const extra=m+3-2*j;
+    res.message='This truss is statically indeterminate — it has '+extra+' more member'+(extra>1?'s':'')+' than the method of joints can solve. Remove redundant members. Rule: 2 × joints = members + 3.';
+    return res;
+  }
+  const N=m+3;
+  const A=Array.from({length:N},()=>new Float64Array(N));
+  const b=new Float64Array(N);
+  const rowOf={}; nodes.forEach((n,i)=>rowOf[n.id]=2*i);
+  members.forEach((mb,k)=>{
+    const na=nodeById[mb.a], nb=nodeById[mb.b];
+    const L=tDist(na,nb)||1;
+    const ux=(nb.x-na.x)/L, uy=(nb.y-na.y)/L;
+    A[rowOf[na.id]][k]+=ux;  A[rowOf[na.id]+1][k]+=uy;
+    A[rowOf[nb.id]][k]+=-ux; A[rowOf[nb.id]+1][k]+=-uy;
+  });
+  A[rowOf[state.pinNode]][m]=1;
+  A[rowOf[state.pinNode]+1][m+1]=1;
+  A[rowOf[state.rollerNode]+1][m+2]=1;
+  (state.loads||[]).forEach(ld=>{
+    if (!nodeById[ld.node]) return;
+    b[rowOf[ld.node]]-=(ld.fx||0);
+    b[rowOf[ld.node]+1]-=(ld.fy||0);
+  });
+  const x=gaussSolve(A,b,N);
+  if (!x){
+    res.status='unstable';
+    res.message='This geometry is unstable even though the member count checks out — look for joints whose members are collinear (they can\u2019t resist a sideways push) or for a disconnected section.';
+    return res;
+  }
+  members.forEach((mb,k)=>{
+    let f=x[k];
+    if (Math.abs(f)<1e-9) f=0;
+    res.forces[mb.id]=f;
+    if (f>res.maxT) res.maxT=f;
+    if (f<res.maxC) res.maxC=f;
+  });
+  res.reactions={pin:{x:x[m],y:x[m+1]},roller:{y:x[m+2]}};
+  let worst=0;
+  for (let r=0;r<N;r++){ let s=0; for(let c=0;c<N;c++) s+=A[r][c]*x[c]; worst=Math.max(worst,Math.abs(s-b[r])); }
+  res.residual=worst;
+  return res;
+}
+function gaussSolve(Ain,bin,N){
+  const A=Ain.map(r=>Float64Array.from(r));
+  const b=Float64Array.from(bin);
+  for (let col=0;col<N;col++){
+    let p=col;
+    for (let r=col+1;r<N;r++) if (Math.abs(A[r][col])>Math.abs(A[p][col])) p=r;
+    if (Math.abs(A[p][col])<1e-9) return null;
+    if (p!==col){ const t=A[p];A[p]=A[col];A[col]=t; const tb=b[p];b[p]=b[col];b[col]=tb; }
+    for (let r=col+1;r<N;r++){
+      const f=A[r][col]/A[col][col];
+      if (!f) continue;
+      for (let c=col;c<N;c++) A[r][c]-=f*A[col][c];
+      b[r]-=f*b[col];
+    }
+  }
+  const x=new Float64Array(N);
+  for (let r=N-1;r>=0;r--){ let s=b[r]; for(let c=r+1;c<N;c++) s-=A[r][c]*x[c]; x[r]=s/A[r][r]; }
+  return x;
+}
+function failureLoad(solvedUnit, members, limitFn){
+  let minLoad=Infinity, critical=null;
+  for (const mb of members){
+    const fPerN=Math.abs(solvedUnit.forces[mb.id]||0);
+    if (fPerN<1e-12) continue;
+    const lim=limitFn(mb);
+    const cap=lim/fPerN;
+    if (cap<minLoad){ minLoad=cap; critical=mb.id; }
+  }
+  return {load:minLoad, memberId:critical};
+}
+function tFmt(n){
+  if (n==null||!isFinite(n)) return '—';
+  const a=Math.abs(n);
+  const r=a>=100?Math.round(n):Math.round(n*10)/10;
+  return String(r);
+}
+
+/* =====================================================================
+   PROJECT CONSTANTS — matches the class bridge project & Vernier tester
+   ===================================================================== */
+const SPAN = 6.0;           // inches between supports
+const GRID = 0.5;           // inch snap grid
+const TESTER_CAP = 1000;    // N — Vernier load cell rating
+const WORLD = {x0:-1.25, x1:7.25, y0:-2.75, y1:3.75}; // inches visible
+
+/* =====================================================================
+   APP STATE
+   ===================================================================== */
+const S = {
+  nodes:[ {id:'S1',x:0,y:0,support:'pin'}, {id:'S2',x:SPAN,y:0,support:'roller'} ],
+  members:[],
+  tool:'joint',            // joint|member|move|inspect|delete
+  memberFirst:null,        // first joint picked for a member
+  inspected:null,          // joint id for FBD
+  loadMode:'vsmt',         // 'vsmt' | 'moving'
+  applied:100,             // N (tester total)
+  twoTruss:true,
+  movingLoad:100, movingIdx:0,
+  limit:90, budget:60,
+  drag:null,
+  idc:0
+};
+function uid(p){ return p + (++S.idc); }
+function nodeById(id){ return S.nodes.find(n=>n.id===id); }
+function deckJoints(){
+  return S.nodes.filter(n=>Math.abs(n.y)<1e-9 && n.x>-1e-9 && n.x<SPAN+1e-9)
+                .sort((a,b)=>a.x-b.x);
+}
+
+/* =====================================================================
+   LOAD CASES + SOLVE
+   ===================================================================== */
+let solved=null, unitSolved=null, fail=null, loadInfo=null;
+function currentLoads(){
+  // Returns {loads:[...], perTruss, describe, warn}
+  if (S.loadMode==='vsmt'){
+    const deck=deckJoints().filter(n=>!n.support);
+    if (!deck.length) return {loads:[], perTruss:0, warn:'Add at least one deck joint (on the bottom chord between the supports) for the tester plate to pull on.'};
+    let best=null;
+    for (const n of deck){ const d=Math.abs(n.x-SPAN/2); if (!best||d<best.d) best={n,d}; }
+    const warn = best.d>0.76 ? 'No deck joint near midspan — the tester plate pulls at the center. Load applied at nearest deck joint ('+best.n.x.toFixed(1)+' in).' : null;
+    const perTruss = S.applied * (S.twoTruss?0.5:1);
+    return {loads:[{node:best.n.id, fx:0, fy:-perTruss}], perTruss, node:best.n.id, warn};
+  } else {
+    const deck=deckJoints().filter(n=>!n.support);
+    if (!deck.length) return {loads:[], perTruss:0, warn:'Add deck joints for the moving load to cross.'};
+    S.movingIdx=Math.max(0,Math.min(S.movingIdx, deck.length-1));
+    const n=deck[S.movingIdx];
+    return {loads:[{node:n.id, fx:0, fy:-S.movingLoad}], perTruss:S.movingLoad, node:n.id, warn:null};
+  }
+}
+function resolve(){
+  loadInfo=currentLoads();
+  const st={nodes:S.nodes, members:S.members, pinNode:'S1', rollerNode:'S2', loads:loadInfo.loads};
+  solved=solveTruss(st);
+  // Unit-load solve for failure prediction (same load pattern, magnitude 1 N per truss)
+  if (solved.status==='ok' && loadInfo.loads.length){
+    const unitLoads=loadInfo.loads.map(l=>({node:l.node, fx:0, fy:-1}));
+    unitSolved=solveTruss({nodes:S.nodes, members:S.members, pinNode:'S1', rollerNode:'S2', loads:unitLoads});
+    fail=failureLoad(unitSolved, S.members, ()=>S.limit);
+  } else { unitSolved=null; fail=null; }
+  updateDRO();
+  drawFBD();
+  draw();
+}
+function updateDRO(){
+  const st=document.getElementById('droStatus');
+  const map={ok:'OK', mechanism:'MECH', indeterminate:'INDET', unstable:'UNSTBL', empty:'—'};
+  st.textContent=map[solved.status]||'—';
+  st.classList.toggle('bad', solved.status!=='ok'&&solved.status!=='empty');
+  const mt=document.getElementById('droMaxT'), mc=document.getElementById('droMaxC');
+  if (solved.status==='ok'){
+    mt.textContent=tFmt(solved.maxT)+' N'; mt.classList.remove('dim');
+    mc.textContent=tFmt(Math.abs(solved.maxC))+' N'; mc.classList.remove('dim');
+  } else { mt.textContent='—'; mt.classList.add('dim'); mc.textContent='—'; mc.classList.add('dim'); }
+  const df=document.getElementById('droFail');
+  if (fail && isFinite(fail.load)){
+    const testerLoad = S.loadMode==='vsmt' ? fail.load*(S.twoTruss?2:1) : fail.load;
+    df.textContent=tFmt(testerLoad)+' N';
+    df.classList.remove('dim');
+    df.classList.toggle('bad', testerLoad>TESTER_CAP);
+  } else { df.textContent='—'; df.classList.add('dim'); }
+  const dl=document.getElementById('droLen');
+  dl.textContent = solved.totalLength ? (Math.round(solved.totalLength*10)/10)+' / '+S.budget : '— / '+S.budget;
+  dl.classList.toggle('bad', solved.totalLength>S.budget);
+  const msg=document.getElementById('droMsg');
+  let text = solved.message || '';
+  if (!text && loadInfo && loadInfo.warn) text=loadInfo.warn;
+  if (!text && fail && isFinite(fail.load)){
+    const testerLoad=S.loadMode==='vsmt'?fail.load*(S.twoTruss?2:1):fail.load;
+    const mb=S.members.find(x=>x.id===fail.memberId);
+    if (mb) text='First failure: member '+memberName(mb)+' at ~'+tFmt(testerLoad)+' N '+(S.loadMode==='vsmt'?'tester load':'')+(testerLoad>TESTER_CAP?' — exceeds the tester\u2019s '+TESTER_CAP+' N load cell.':'.');
+  }
+  msg.textContent=text;
+  msg.classList.toggle('err', solved.status!=='ok'&&solved.status!=='empty');
+}
+function memberName(mb){
+  const a=nodeById(mb.a), b=nodeById(mb.b);
+  return '('+a.x.toFixed(1)+','+a.y.toFixed(1)+')–('+b.x.toFixed(1)+','+b.y.toFixed(1)+')';
+}
+
+/* =====================================================================
+   CANVAS + RENDER
+   ===================================================================== */
+const canvas=document.getElementById('board');
+const ctx=canvas.getContext('2d');
+let CW=0,CH=0,DPR=1,PX=60,OX=0,OY=0; // PX = px per inch
+function resize(){
+  const r=canvas.getBoundingClientRect();
+  DPR=window.devicePixelRatio||1;
+  CW=r.width; CH=r.height;
+  canvas.width=Math.round(CW*DPR); canvas.height=Math.round(CH*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  const w=WORLD.x1-WORLD.x0, h=WORLD.y1-WORLD.y0;
+  PX=Math.min(CW/w, CH/h);
+  OX=(CW-w*PX)/2 - WORLD.x0*PX;
+  OY=(CH+h*PX)/2 + WORLD.y0*PX; // y up
+  draw();
+}
+window.addEventListener('resize', resize);
+function wx(x){ return OX+x*PX; }
+function wy(y){ return OY-y*PX; }
+function toWorld(p){ return {x:(p.x-OX)/PX, y:(OY-p.y)/PX}; }
+
+function draw(){
+  ctx.fillStyle='#F6F5F0'; ctx.fillRect(0,0,CW,CH);
+  // grid
+  for (let x=Math.ceil(WORLD.x0/GRID)*GRID; x<=WORLD.x1; x+=GRID){
+    ctx.strokeStyle = (Math.abs(x-Math.round(x))<1e-9)?'#D8D5C8':'#E7E5DC';
+    ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(wx(x)+.5,0); ctx.lineTo(wx(x)+.5,CH); ctx.stroke();
+  }
+  for (let y=Math.ceil(WORLD.y0/GRID)*GRID; y<=WORLD.y1; y+=GRID){
+    ctx.strokeStyle = (Math.abs(y-Math.round(y))<1e-9)?'#D8D5C8':'#E7E5DC';
+    ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,wy(y)+.5); ctx.lineTo(CW,wy(y)+.5); ctx.stroke();
+  }
+  // gap / span shading below deck
+  ctx.fillStyle='rgba(90,96,104,.07)';
+  ctx.fillRect(wx(0), wy(0)+14, SPAN*PX, CH-wy(0)-14);
+  // ruler along deck
+  ctx.strokeStyle='#8B929B'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(wx(0), wy(-2.1)); ctx.lineTo(wx(SPAN), wy(-2.1)); ctx.stroke();
+  ctx.font='10px ui-monospace,Consolas,monospace'; ctx.fillStyle='#5A6068'; ctx.textAlign='center';
+  for (let i=0;i<=6;i++){
+    ctx.beginPath(); ctx.moveTo(wx(i),wy(-2.1)-4); ctx.lineTo(wx(i),wy(-2.1)+4); ctx.stroke();
+    ctx.fillText(i+'"', wx(i), wy(-2.1)+16);
+  }
+  // members
+  for (const mb of S.members){
+    const a=nodeById(mb.a), b=nodeById(mb.b);
+    if (!a||!b) continue;
+    let color='#8B929B', width=2.5, over=false, f=0;
+    if (solved && solved.status==='ok'){
+      f=solved.forces[mb.id]||0;
+      const util=Math.min(1, Math.abs(f)/S.limit);
+      width=2+util*7;
+      over=Math.abs(f)>S.limit+1e-9;
+      color = f>1e-9 ? '#1D5FA8' : (f<-1e-9 ? '#B3402F' : '#8B929B');
+    }
+    ctx.strokeStyle=color; ctx.lineWidth=width; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(wx(a.x),wy(a.y)); ctx.lineTo(wx(b.x),wy(b.y)); ctx.stroke();
+    // force label
+    if (solved && solved.status==='ok' && Math.abs(f)>1e-9){
+      const mxp=(wx(a.x)+wx(b.x))/2, myp=(wy(a.y)+wy(b.y))/2;
+      ctx.font='600 10px ui-monospace,Consolas,monospace';
+      ctx.fillStyle=color; ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.save();
+      ctx.translate(mxp,myp);
+      let ang=Math.atan2(wy(b.y)-wy(a.y), wx(b.x)-wx(a.x));
+      if (ang>Math.PI/2||ang<-Math.PI/2) ang+=Math.PI;
+      ctx.rotate(ang);
+      ctx.fillText(tFmt(Math.abs(f))+(f>0?' T':' C'), 0, -3);
+      ctx.restore();
+    }
+    if (over){
+      const mxp=(wx(a.x)+wx(b.x))/2, myp=(wy(a.y)+wy(b.y))/2;
+      ctx.strokeStyle='#B3402F'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(mxp-7,myp-7); ctx.lineTo(mxp+7,myp+7);
+      ctx.moveTo(mxp+7,myp-7); ctx.lineTo(mxp-7,myp+7); ctx.stroke();
+    }
+    if (fail && fail.memberId===mb.id && solved.status==='ok'){
+      ctx.setLineDash([4,4]); ctx.strokeStyle='#B3402F'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(wx(a.x),wy(a.y)); ctx.lineTo(wx(b.x),wy(b.y)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  // member-in-progress
+  if (S.tool==='member' && S.memberFirst){
+    const a=nodeById(S.memberFirst);
+    ctx.strokeStyle='#1D5FA8'; ctx.setLineDash([5,4]); ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(wx(a.x),wy(a.y),12,0,Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // loads (arrows)
+  if (loadInfo && loadInfo.loads.length && solved.status!=='empty'){
+    for (const ld of loadInfo.loads){
+      const n=nodeById(ld.node); if(!n) continue;
+      const x=wx(n.x), y=wy(n.y);
+      ctx.strokeStyle='#B08A2E'; ctx.fillStyle='#B08A2E'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(x, y-46); ctx.lineTo(x, y-12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y-8); ctx.lineTo(x-6, y-18); ctx.lineTo(x+6, y-18); ctx.closePath(); ctx.fill();
+      ctx.font='700 11px ui-monospace,Consolas,monospace'; ctx.textAlign='center';
+      ctx.fillText(tFmt(Math.abs(ld.fy))+' N', x, y-52);
+      if (S.loadMode==='vsmt'){
+        // 2x2 plate icon
+        ctx.strokeStyle='#B08A2E'; ctx.lineWidth=2;
+        ctx.strokeRect(x-PX, y-70, 2*PX, 8);
+        ctx.font='9px ui-monospace,Consolas,monospace';
+        ctx.fillText('2\u2033 plate', x, y-74);
+      }
+    }
+  }
+  // nodes
+  for (const n of S.nodes){
+    const x=wx(n.x), y=wy(n.y);
+    if (n.support==='pin'){
+      ctx.fillStyle='#23272C';
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-11,y+18); ctx.lineTo(x+11,y+18); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle='#23272C'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(x-15,y+21); ctx.lineTo(x+15,y+21); ctx.stroke();
+    } else if (n.support==='roller'){
+      ctx.fillStyle='#23272C';
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-10,y+14); ctx.lineTo(x+10,y+14); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.arc(x-5,y+18,3.5,0,Math.PI*2); ctx.arc(x+5,y+18,3.5,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#23272C'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(x-15,y+23); ctx.lineTo(x+15,y+23); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(x,y,6,0,Math.PI*2);
+    ctx.fillStyle = (S.inspected===n.id)?'#1D5FA8':'#F6F5F0';
+    ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle='#23272C'; ctx.stroke();
+  }
+}
+
+/* =====================================================================
+   FBD INSPECTOR
+   ===================================================================== */
+const fbd=document.getElementById('fbdCanvas');
+const fctx=fbd.getContext('2d');
+function drawFBD(){
+  const info=document.getElementById('fbdInfo');
+  const empty=document.getElementById('fbdEmpty');
+  fctx.clearRect(0,0,fbd.width,fbd.height);
+  if (!S.inspected || !nodeById(S.inspected) || !solved || solved.status!=='ok'){
+    info.innerHTML=''; empty.style.display='block';
+    if (S.inspected && solved && solved.status!=='ok') empty.textContent='Solve the truss first — fix the status error, then inspect joints.';
+    return;
+  }
+  empty.style.display='none';
+  const n=nodeById(S.inspected);
+  const cx=fbd.width/2, cy=fbd.height/2, R=95;
+  // gather forces at this joint: member axials + reactions + loads
+  const vectors=[]; // {fx,fy,label,color}
+  for (const mb of S.members){
+    if (mb.a!==n.id && mb.b!==n.id) continue;
+    const other=nodeById(mb.a===n.id?mb.b:mb.a);
+    const L=tDist(n,other)||1;
+    const ux=(other.x-n.x)/L, uy=(other.y-n.y)/L;
+    const f=solved.forces[mb.id]||0;
+    // Tension pulls the joint toward the other node: force on joint = f * u
+    vectors.push({fx:f*ux, fy:f*uy, label:tFmt(Math.abs(f))+(f>=0?' T':' C'), color: f>1e-9?'#1D5FA8':(f<-1e-9?'#B3402F':'#8B929B')});
+  }
+  if (n.id==='S1' && solved.reactions){ vectors.push({fx:solved.reactions.pin.x, fy:solved.reactions.pin.y, label:'R', color:'#23272C'}); }
+  if (n.id==='S2' && solved.reactions){ vectors.push({fx:0, fy:solved.reactions.roller.y, label:'R', color:'#23272C'}); }
+  for (const ld of (loadInfo?loadInfo.loads:[])){
+    if (ld.node===n.id) vectors.push({fx:ld.fx||0, fy:ld.fy||0, label:tFmt(Math.abs(ld.fy))+' N load', color:'#B08A2E'});
+  }
+  const maxMag=Math.max.apply(null, vectors.map(v=>Math.hypot(v.fx,v.fy)).concat([1]));
+  // joint dot
+  fctx.fillStyle='#23272C';
+  fctx.beginPath(); fctx.arc(cx,cy,5,0,Math.PI*2); fctx.fill();
+  let sx=0, sy=0;
+  let html='<div style="font:700 10px var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:#5A6068;margin-bottom:4px">Joint ('+n.x.toFixed(1)+', '+n.y.toFixed(1)+')</div>';
+  for (const v of vectors){
+    sx+=v.fx; sy+=v.fy;
+    const mag=Math.hypot(v.fx,v.fy);
+    if (mag<1e-9) continue;
+    const len=20+(mag/maxMag)*(R-25);
+    const ex=cx+v.fx/mag*len, ey=cy-v.fy/mag*len; // canvas y down
+    fctx.strokeStyle=v.color; fctx.fillStyle=v.color; fctx.lineWidth=2.5;
+    fctx.beginPath(); fctx.moveTo(cx,cy); fctx.lineTo(ex,ey); fctx.stroke();
+    const ang=Math.atan2(ey-cy,ex-cx);
+    fctx.beginPath();
+    fctx.moveTo(ex,ey);
+    fctx.lineTo(ex-9*Math.cos(ang-0.4), ey-9*Math.sin(ang-0.4));
+    fctx.lineTo(ex-9*Math.cos(ang+0.4), ey-9*Math.sin(ang+0.4));
+    fctx.closePath(); fctx.fill();
+    fctx.font='600 9px ui-monospace,Consolas,monospace';
+    fctx.fillText(v.label, ex+ (Math.cos(ang)>=0?4:-38), ey+(Math.sin(ang)>=0?12:-6));
+    const cls = v.color==='#1D5FA8'?'t':(v.color==='#B3402F'?'c':'');
+    html+='<div><span class="'+cls+'">'+(v.label)+'</span> → (' + tFmt(v.fx)+', '+tFmt(v.fy)+') N</div>';
+  }
+  html+='<div style="border-top:1px solid #C9C6BA;margin-top:6px;padding-top:4px">ΣF = ('+tFmt(Math.abs(sx)<0.005?0:sx)+', '+tFmt(Math.abs(sy)<0.005?0:sy)+') N — equilibrium ✓</div>';
+  info.innerHTML=html;
+}
+
+/* =====================================================================
+   INTERACTION
+   ===================================================================== */
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.style.opacity=1;
+  clearTimeout(t._h); t._h=setTimeout(()=>t.style.opacity=0, 3000);
+}
+function snap(v){ return Math.round(v/GRID)*GRID; }
+function hitNode(w){
+  let best=null;
+  for (const n of S.nodes){
+    const d=Math.hypot(n.x-w.x,n.y-w.y)*PX;
+    if (d<16 && (!best||d<best.d)) best={n,d};
+  }
+  return best?best.n:null;
+}
+canvas.addEventListener('pointerdown', ev=>{
+  ev.preventDefault();
+  canvas.setPointerCapture(ev.pointerId);
+  const w=toWorld({x:ev.clientX-canvas.getBoundingClientRect().left, y:ev.clientY-canvas.getBoundingClientRect().top});
+  const hit=hitNode(w);
+  if (S.tool==='joint'){
+    if (hit) { toast('A joint is already there.'); return; }
+    const x=snap(w.x), y=snap(w.y);
+    if (x<WORLD.x0||x>WORLD.x1||y<WORLD.y0+0.5||y>WORLD.y1-0.25) return;
+    S.nodes.push({id:uid('n'), x, y});
+    resolve(); return;
+  }
+  if (S.tool==='member'){
+    if (!hit){ toast('Tap a joint. Members connect joint to joint.'); return; }
+    if (!S.memberFirst){ S.memberFirst=hit.id; draw(); return; }
+    if (S.memberFirst===hit.id){ S.memberFirst=null; draw(); return; }
+    const dup=S.members.some(mb=>(mb.a===S.memberFirst&&mb.b===hit.id)||(mb.b===S.memberFirst&&mb.a===hit.id));
+    if (dup){ toast('Those joints are already connected.'); S.memberFirst=null; draw(); return; }
+    S.members.push({id:uid('m'), a:S.memberFirst, b:hit.id});
+    S.memberFirst=null;
+    resolve(); return;
+  }
+  if (S.tool==='move'){
+    if (hit && !hit.support){ S.drag=hit.id; }
+    else if (hit && hit.support){ toast('Supports are fixed — they match the tester frame.'); }
+    return;
+  }
+  if (S.tool==='inspect'){
+    if (hit){ S.inspected=hit.id; resolve(); }
+    return;
+  }
+  if (S.tool==='delete'){
+    if (hit){
+      if (hit.support){ toast('Supports can\u2019t be removed.'); return; }
+      S.members=S.members.filter(mb=>mb.a!==hit.id&&mb.b!==hit.id);
+      S.nodes=S.nodes.filter(n=>n.id!==hit.id);
+      if (S.inspected===hit.id) S.inspected=null;
+      resolve(); return;
+    }
+    // hit test members (distance point-to-segment)
+    let bestM=null;
+    for (const mb of S.members){
+      const a=nodeById(mb.a), b=nodeById(mb.b);
+      const d=segDist(w,a,b)*PX;
+      if (d<10 && (!bestM||d<bestM.d)) bestM={mb,d};
+    }
+    if (bestM){ S.members=S.members.filter(x=>x.id!==bestM.mb.id); resolve(); }
+    return;
+  }
+});
+canvas.addEventListener('pointermove', ev=>{
+  if (S.tool!=='move'||!S.drag) return;
+  const w=toWorld({x:ev.clientX-canvas.getBoundingClientRect().left, y:ev.clientY-canvas.getBoundingClientRect().top});
+  const n=nodeById(S.drag); if(!n) return;
+  n.x=snap(Math.max(WORLD.x0,Math.min(WORLD.x1,w.x)));
+  n.y=snap(Math.max(WORLD.y0+0.5,Math.min(WORLD.y1-0.25,w.y)));
+  resolve();
+});
+canvas.addEventListener('pointerup', ()=>{ S.drag=null; });
+function segDist(p,a,b){
+  const vx=b.x-a.x, vy=b.y-a.y;
+  const L2=vx*vx+vy*vy;
+  if (!L2) return Math.hypot(p.x-a.x,p.y-a.y);
+  let t=((p.x-a.x)*vx+(p.y-a.y)*vy)/L2;
+  t=Math.max(0,Math.min(1,t));
+  return Math.hypot(p.x-(a.x+t*vx), p.y-(a.y+t*vy));
+}
+
+/* ---------- palette wiring ---------- */
+const tools=['joint','member','move','inspect','delete'];
+tools.forEach(t=>{
+  document.getElementById('tool'+t[0].toUpperCase()+t.slice(1)).addEventListener('click',()=>setTool(t));
+});
+function setTool(t){
+  S.tool=t; S.memberFirst=null;
+  tools.forEach(x=>document.getElementById('tool'+x[0].toUpperCase()+x.slice(1)).classList.toggle('armed', x===t));
+  canvas.style.cursor = t==='joint'?'copy':(t==='move'?'move':'crosshair');
+  draw();
+}
+document.getElementById('toolClear').addEventListener('click',()=>{
+  if (!confirm('Clear all joints and members?')) return;
+  S.nodes=S.nodes.filter(n=>n.support);
+  S.members=[]; S.inspected=null; S.memberFirst=null;
+  resolve();
+});
+document.getElementById('lmVsmt').addEventListener('click',()=>setLoadMode('vsmt'));
+document.getElementById('lmMoving').addEventListener('click',()=>setLoadMode('moving'));
+function setLoadMode(m){
+  S.loadMode=m;
+  document.getElementById('lmVsmt').classList.toggle('on', m==='vsmt');
+  document.getElementById('lmMoving').classList.toggle('on', m==='moving');
+  document.getElementById('vsmtCtl').style.display=m==='vsmt'?'block':'none';
+  document.getElementById('movingCtl').style.display=m==='moving'?'block':'none';
+  resolve();
+}
+document.getElementById('appliedLoad').addEventListener('input',e=>{ S.applied=Number(e.target.value)||100; resolve(); });
+document.getElementById('twoTrussChk').addEventListener('change',e=>{ S.twoTruss=e.target.checked; resolve(); });
+document.getElementById('movingLoad').addEventListener('input',e=>{ S.movingLoad=Number(e.target.value)||100; resolve(); });
+document.getElementById('stepL').addEventListener('click',()=>{ S.movingIdx--; resolve(); });
+document.getElementById('stepR').addEventListener('click',()=>{ S.movingIdx++; resolve(); });
+document.getElementById('materialSel').addEventListener('change',e=>{
+  if (e.target.value!=='custom'){
+    S.limit=Number(e.target.value);
+    document.getElementById('limitInput').value=S.limit;
+  }
+  resolve();
+});
+document.getElementById('limitInput').addEventListener('input',e=>{
+  S.limit=Number(e.target.value)||90;
+  const sel=document.getElementById('materialSel');
+  if (Number(sel.value)!==S.limit) sel.value='custom';
+  resolve();
+});
+document.getElementById('budgetInput').addEventListener('input',e=>{ S.budget=Number(e.target.value)||60; resolve(); });
+
+/* =====================================================================
+   EXPORTS
+   ===================================================================== */
+function titleLines(){
+  const name=document.getElementById('studentName').value.trim()||'(unnamed)';
+  const date=new Date().toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+  const mode=S.loadMode==='vsmt'?'Tester load '+S.applied+' N'+(S.twoTruss?' (two planes, '+tFmt(S.applied/2)+' N per truss)':''):'Moving load '+S.movingLoad+' N';
+  return {name,date,mode};
+}
+function snapshotDataURL(){
+  const off=document.createElement('canvas');
+  off.width=CW; off.height=CH;
+  const c=off.getContext('2d');
+  // redraw scene into offscreen (reuse draw by temporarily swapping ctx is messy; simplest: copy pixels)
+  c.drawImage(canvas, 0, 0, CW, CH);
+  return off.toDataURL('image/png');
+}
+document.getElementById('btnPng').addEventListener('click',()=>{
+  const pad=24, headH=86, footH=70;
+  const W=Math.max(900,CW+pad*2), H=headH+CH+footH+pad;
+  const off=document.createElement('canvas'); off.width=W; off.height=H;
+  const c=off.getContext('2d');
+  c.fillStyle='#FFFFFF'; c.fillRect(0,0,W,H);
+  c.strokeStyle='#23272C'; c.lineWidth=2; c.strokeRect(8,8,W-16,H-16);
+  const t=titleLines();
+  c.fillStyle='#23272C';
+  c.font='700 20px "Avenir Next","Segoe UI",sans-serif';
+  c.fillText('TRUSS STRESS VISUALIZER', pad, 40);
+  c.font='12px "Avenir Next","Segoe UI",sans-serif';
+  c.fillText('Name: '+t.name+'    Date: '+t.date+'    '+t.mode+'    Material limit: '+S.limit+' N/member', pad, 62);
+  c.strokeStyle='#B9B6AA'; c.lineWidth=1; c.beginPath(); c.moveTo(pad,72); c.lineTo(W-pad,72); c.stroke();
+  const img=new Image();
+  img.onload=()=>{
+    c.drawImage(img, pad, headH, CW, CH);
+    let y=headH+CH+26;
+    c.font='600 13px ui-monospace,Consolas,monospace'; c.fillStyle='#23272C';
+    let line='STATUS '+solved.status.toUpperCase()+'   MAX T '+tFmt(solved.maxT)+' N   MAX C '+tFmt(Math.abs(solved.maxC))+' N   LENGTH '+(Math.round(solved.totalLength*10)/10)+' / '+S.budget+' in';
+    if (fail&&isFinite(fail.load)){
+      const testerLoad=S.loadMode==='vsmt'?fail.load*(S.twoTruss?2:1):fail.load;
+      line+='   PREDICTED FAILURE '+tFmt(testerLoad)+' N';
+    }
+    c.fillText(line, pad, y);
+    const a=document.createElement('a');
+    a.download='truss-'+t.date.replace(/[ ,]/g,'-')+'.png';
+    a.href=off.toDataURL('image/png');
+    a.click();
+  };
+  img.src=snapshotDataURL();
+});
+document.getElementById('btnReport').addEventListener('click',()=>{
+  const t=titleLines();
+  const img=snapshotDataURL();
+  let jointRows='';
+  S.nodes.forEach(n=>{
+    jointRows+='<tr><td>('+n.x.toFixed(2)+', '+n.y.toFixed(2)+') in</td><td>'+(n.support?(n.support==='pin'?'Pin support':'Roller support'):'—')+'</td></tr>';
+  });
+  let memberRows='';
+  S.members.forEach(mb=>{
+    const a=nodeById(mb.a), b=nodeById(mb.b);
+    const L=tDist(a,b);
+    const f=(solved&&solved.status==='ok')?(solved.forces[mb.id]||0):null;
+    const util=f!=null?Math.round(Math.abs(f)/S.limit*100):null;
+    memberRows+='<tr><td>'+memberName(mb)+'</td><td>'+L.toFixed(2)+' in</td>'+
+      '<td>'+(f==null?'—':tFmt(Math.abs(f))+' N '+(f>1e-9?'tension':(f<-1e-9?'compression':'zero')))+'</td>'+
+      '<td>'+(util==null?'—':util+'%'+(util>100?' — OVER':''))+'</td></tr>';
+  });
+  let failBlock='';
+  if (fail&&isFinite(fail.load)){
+    const testerLoad=S.loadMode==='vsmt'?fail.load*(S.twoTruss?2:1):fail.load;
+    const mb=S.members.find(x=>x.id===fail.memberId);
+    failBlock='<h2>Failure prediction</h2><p style="font-size:12px">First member predicted to fail: '+(mb?memberName(mb):'—')+
+      ' at approximately <strong>'+tFmt(testerLoad)+' N</strong> applied '+(S.loadMode==='vsmt'?'tester':'')+' load'+
+      (S.twoTruss&&S.loadMode==='vsmt'?' (each of two truss planes carrying half)':'')+ 
+      (testerLoad>TESTER_CAP?'. Note: exceeds the tester\u2019s '+TESTER_CAP+' N load cell.':'.')+
+      ' Ideal pin-jointed model — actual results will vary with joints, glue, and member buckling.</p>';
+  }
+  const rx=solved&&solved.reactions;
+  document.getElementById('report').innerHTML =
+    '<div class="rb"><h1>Truss Stress Visualizer — Design Record</h1>'+
+    '<div class="sub">Engineering Education · 6-inch span bridge truss</div>'+
+    '<table><tr><th>Name</th><th>Date</th><th>Load case</th><th>Material limit</th><th>Length / budget</th></tr>'+
+    '<tr><td>'+t.name+'</td><td>'+t.date+'</td><td>'+t.mode+'</td><td>'+S.limit+' N per member</td><td>'+(Math.round(solved.totalLength*10)/10)+' / '+S.budget+' in</td></tr></table>'+
+    '<img src="'+img+'">'+
+    '<h2>Joints</h2><table><tr><th>Position</th><th>Support</th></tr>'+jointRows+'</table>'+
+    '<h2>Members</h2><table><tr><th>Member</th><th>Length</th><th>Force</th><th>Utilization</th></tr>'+memberRows+'</table>'+
+    (rx?('<h2>Reactions</h2><table><tr><th>Pin (left)</th><th>Roller (right)</th></tr><tr><td>Rx '+tFmt(rx.pin.x)+' N · Ry '+tFmt(rx.pin.y)+' N</td><td>Ry '+tFmt(rx.roller.y)+' N</td></tr></table>'):'')+
+    failBlock+
+    '<div class="sig"><span>Student signature</span><span>Teacher check</span></div></div>';
+  window.print();
+});
+document.getElementById('btnSave').addEventListener('click',()=>{
+  const data={version:1, nodes:S.nodes, members:S.members, limit:S.limit, budget:S.budget,
+    loadMode:S.loadMode, applied:S.applied, movingLoad:S.movingLoad, twoTruss:S.twoTruss};
+  const a=document.createElement('a');
+  a.download='truss-design.json';
+  a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data,null,2));
+  a.click();
+});
+document.getElementById('btnLoad').addEventListener('click',()=>document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change',ev=>{
+  const f=ev.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const d=JSON.parse(rd.result);
+      if (!Array.isArray(d.nodes)||!Array.isArray(d.members)) throw new Error('bad');
+      if (!d.nodes.some(n=>n.support==='pin')||!d.nodes.some(n=>n.support==='roller')) throw new Error('bad');
+      S.nodes=d.nodes; S.members=d.members;
+      if (d.limit){ S.limit=d.limit; document.getElementById('limitInput').value=d.limit; document.getElementById('materialSel').value='custom'; }
+      if (d.budget){ S.budget=d.budget; document.getElementById('budgetInput').value=d.budget; }
+      if (d.twoTruss!=null){ S.twoTruss=d.twoTruss; document.getElementById('twoTrussChk').checked=d.twoTruss; }
+      let maxN=0; [...S.nodes,...S.members].forEach(o=>{const mm=/\d+$/.exec(o.id); if(mm) maxN=Math.max(maxN,Number(mm[0]));});
+      S.idc=maxN;
+      S.inspected=null; S.memberFirst=null;
+      resolve(); toast('Design loaded.');
+    }catch(e){ toast('Could not read that file.'); }
+  };
+  rd.readAsText(f);
+  ev.target.value='';
+});
+document.getElementById('btnHelp').addEventListener('click',()=>document.getElementById('modalBack').classList.add('open'));
+document.getElementById('modalClose').addEventListener('click',()=>document.getElementById('modalBack').classList.remove('open'));
+document.getElementById('modalBack').addEventListener('click',ev=>{ if(ev.target.id==='modalBack') ev.target.classList.remove('open'); });
+
+/* ---------- boot ---------- */
+resize();
+resolve();
+</script>
+</body>
+</html>
