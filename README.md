@@ -33,3 +33,5 @@ node verify-html.js  # confirms the inline solver matches and validates an 8-joi
 ```
 
 Edit `dev/solver.js` first, run tests, then sync the inline copy in `index.html`.
+
+This was built using Claude. Please don’t use this tool if you have qualms about using code created with AI tools.
