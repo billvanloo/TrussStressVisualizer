@@ -35,3 +35,17 @@ node verify-html.js  # confirms the inline solver matches and validates an 8-joi
 Edit `dev/solver.js` first, run tests, then sync the inline copy in `index.html`.
 
 This was built using Claude. Please don’t use this tool if you have qualms about using code created with AI tools.
+
+## Privacy
+
+Everything runs in your browser. Nothing you build is uploaded to a server.
+
+## Credits & support
+
+- Designed by **[Bill Van Loo](https://billvanloo.com)**
+- Found a bug or want a feature? Email `billvanloo.tech+feedback@gmail.com` (the subject line is pre-filled from the in-app links).
+- If this tool saved you time, you can [support the work on Ko-fi](https://ko-fi.com/billvanloo).
+
+## License
+
+[MIT](LICENSE) © 2026 Bill Van Loo

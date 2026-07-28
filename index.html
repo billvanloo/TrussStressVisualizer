@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Truss Stress Visualizer — build a truss, apply loads, and see which members go into tension or compression and how close each is to failing. Includes free-body diagrams and a moving-load case. Runs entirely in your browser.">
 <title>Truss Stress Visualizer</title>
 <style>
   :root{
@@ -23,45 +24,45 @@
   header{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:2px solid var(--ink);flex-wrap:wrap}
   .titleblock{display:flex;flex-direction:column;line-height:1.1}
   .titleblock .t1{font-size:15px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
-  .titleblock .t2{font-size:10px;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase}
+  .titleblock .t2{font-size:12px;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase}
   .spacer{flex:1}
-  .namewrap{display:flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft)}
+  .namewrap{display:flex;align-items:center;gap:6px;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft)}
   .namewrap input{font:14px var(--font-ui);border:none;border-bottom:1.5px solid var(--ink);background:transparent;padding:3px 4px;width:150px;outline:none}
   .hbtns{display:flex;gap:6px;flex-wrap:wrap}
-  .hbtns button{font:600 11px var(--font-ui);letter-spacing:.05em;padding:7px 10px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);border-radius:3px;cursor:pointer}
+  .hbtns button{font:600 12px var(--font-ui);letter-spacing:.05em;padding:7px 10px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);border-radius:3px;cursor:pointer}
   .hbtns button:hover{background:var(--ink);color:var(--paper)}
 
   main{flex:1;display:flex;min-height:0}
   #palette{width:168px;border-right:1.5px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;background:#F1EFE8}
-  .pal-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:6px 0 2px}
-  .toolbtn{border:1.5px solid var(--ink);background:#fff;border-radius:4px;padding:8px;cursor:pointer;font:600 11px var(--font-ui);letter-spacing:.04em;text-transform:uppercase;text-align:left}
+  .pal-label{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:6px 0 2px}
+  .toolbtn{border:1.5px solid var(--ink);background:#fff;border-radius:4px;padding:8px;cursor:pointer;font:600 12px var(--font-ui);letter-spacing:.04em;text-transform:uppercase;text-align:left}
   .toolbtn:hover,.toolbtn.armed{background:var(--ink);color:#fff}
   .toolbtn.danger{border-color:var(--fail);color:var(--fail)}
   .toolbtn.danger:hover,.toolbtn.danger.armed{background:var(--fail);color:#fff}
   select,.palinput{font:13px var(--font-ui);padding:6px;border:1.5px solid var(--line);border-radius:3px;background:#fff;width:100%}
-  .palnum{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-soft)}
+  .palnum{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft)}
   .palnum input{font:13px var(--font-mono);width:70px;padding:4px 6px;border:1.5px solid var(--line);border-radius:3px}
-  .palnote{font-size:10px;line-height:1.45;color:var(--ink-soft)}
+  .palnote{font-size:12px;line-height:1.45;color:var(--ink-soft)}
   .lmode{display:flex;border:1.5px solid var(--ink);border-radius:3px;overflow:hidden}
-  .lmode button{flex:1;font:600 10px var(--font-ui);letter-spacing:.03em;text-transform:uppercase;padding:6px 2px;border:none;background:transparent;color:var(--ink);cursor:pointer}
+  .lmode button{flex:1;font:600 12px var(--font-ui);letter-spacing:.03em;text-transform:uppercase;padding:6px 2px;border:none;background:transparent;color:var(--ink);cursor:pointer}
   .lmode button.on{background:var(--ink);color:var(--paper)}
   .stepbtns{display:flex;gap:5px}
   .stepbtns button{flex:1;font:700 14px var(--font-mono);padding:5px;border:1.5px solid var(--ink);background:#fff;border-radius:3px;cursor:pointer}
   .stepbtns button:hover{background:var(--ink);color:#fff}
-  label.chk{display:flex;align-items:flex-start;gap:6px;font-size:11px;line-height:1.4;color:var(--ink)}
-  .legend{font-size:10.5px;line-height:1.7;color:var(--ink)}
+  label.chk{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.4;color:var(--ink)}
+  .legend{font-size:12px;line-height:1.7;color:var(--ink)}
   .legend .sw{display:inline-block;width:22px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px}
 
   #stage{flex:1;display:flex;flex-direction:column;min-width:0}
   #canvasWrap{flex:1;position:relative;min-height:0}
   canvas#board{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
-  #hint{position:absolute;left:12px;top:10px;font:11px var(--font-ui);color:var(--ink-soft);background:rgba(246,245,240,.88);padding:4px 8px;border-radius:3px;pointer-events:none;max-width:70%}
+  #hint{position:absolute;left:12px;top:10px;font:12px var(--font-ui);color:var(--ink-soft);background:rgba(246,245,240,.88);padding:4px 8px;border-radius:3px;pointer-events:none;max-width:70%}
   #toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:var(--ink);color:var(--paper);font:12px var(--font-ui);padding:7px 14px;border-radius:4px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:80%}
 
   #dro{display:flex;align-items:stretch;background:var(--dro-bg);border-top:3px solid var(--ink);padding:8px 12px;flex-wrap:wrap}
   .dro-cell{display:flex;flex-direction:column;justify-content:center;padding:2px 16px 2px 6px;border-right:1px solid #343A41;min-width:110px}
   .dro-cell:last-of-type{border-right:none}
-  .dro-label{font:600 9px var(--font-ui);letter-spacing:.16em;text-transform:uppercase;color:#8B929B}
+  .dro-label{font:600 12px var(--font-ui);letter-spacing:.16em;text-transform:uppercase;color:#8B929B}
   .dro-val{font:700 20px var(--font-mono);color:var(--dro-amber);text-shadow:0 0 6px rgba(255,176,0,.35);white-space:nowrap}
   .dro-val.dim{color:var(--dro-dim);text-shadow:none}
   .dro-val.bad{color:#FF8A6B}
@@ -69,12 +70,12 @@
   .dro-msg.err{color:#FF8A6B}
 
   #fbdPanel{width:270px;border-left:1.5px solid var(--line);background:#F1EFE8;display:flex;flex-direction:column;min-height:0}
-  #fbdPanel h3{font:700 11px var(--font-ui);letter-spacing:.1em;text-transform:uppercase;padding:10px 12px 6px}
+  #fbdPanel h3{font:700 12px var(--font-ui);letter-spacing:.1em;text-transform:uppercase;padding:10px 12px 6px}
   #fbdCanvas{width:100%;aspect-ratio:1;background:var(--paper);border-top:1.5px solid var(--line);border-bottom:1.5px solid var(--line)}
   #fbdInfo{flex:1;overflow-y:auto;padding:10px 12px;font:12px var(--font-mono);line-height:1.8}
   #fbdInfo .t{color:var(--tension);font-weight:700}
   #fbdInfo .c{color:var(--compression);font-weight:700}
-  #fbdEmpty{padding:12px;font-size:11.5px;color:var(--ink-soft);line-height:1.5}
+  #fbdEmpty{padding:12px;font-size:12px;color:var(--ink-soft);line-height:1.5}
 
   #modalBack{position:fixed;inset:0;background:rgba(35,39,44,.5);display:none;align-items:center;justify-content:center;z-index:50}
   #modalBack.open{display:flex}
@@ -107,6 +108,46 @@
     .dro-cell{min-width:92px}
     .dro-val{font-size:16px}
   }
+
+  /* ---------- Accessibility ---------- */
+  :focus-visible{outline:2px solid var(--dykem);outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{
+      animation-duration:.001ms !important;
+      animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;
+      scroll-behavior:auto !important;
+    }
+  }
+
+  /* ---------- Attribution footer ---------- */
+  /* Third flex child of body (header / main / footer); main{flex:1} absorbs the
+     remaining height, so the bar never overlaps the drawing area. */
+  footer{
+    flex:0 0 auto;
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:6px 18px;
+    padding:7px 14px;
+    border-top:1.5px solid var(--line);
+    background:#F1EFE8;
+    font-size:12px;
+    color:var(--ink-soft);
+  }
+  footer .foot-by{color:var(--ink)}
+  footer a{color:var(--ink-soft);text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--line)}
+  footer a:hover{color:var(--dykem);text-decoration-color:var(--dykem)}
+  footer .foot-by a{color:var(--ink)}
+  footer .foot-spacer{flex:1}
+  /* The disclaimer plus five links can't share one line at any realistic width,
+     so give the disclaimer its own row rather than letting a link wrap at random. */
+  footer .foot-ai{color:var(--ink-soft);width:100%;order:10}
+  @media (max-width:900px){
+    footer{gap:4px 12px;padding:6px 10px}
+    footer .foot-spacer{display:none}
+  }
+  @media print{ footer{display:none !important} }
 </style>
 </head>
 <body>
@@ -123,7 +164,7 @@
     <button id="btnReport">Report / PDF</button>
     <button id="btnSave">Save</button>
     <button id="btnLoad">Load</button>
-    <button id="btnHelp">?</button>
+    <button id="btnHelp" aria-label="How to use the visualizer" title="How to use the visualizer">?</button>
   </div>
   <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
 </header>
@@ -181,7 +222,7 @@
     <div id="canvasWrap">
       <canvas id="board"></canvas>
       <div id="hint">Span: 6.00 in between supports (pin ▲ left, roller ○ right). Tap the sheet to add joints on the ½-inch grid; use the Member tool to connect them.</div>
-      <div id="toast"></div>
+      <div id="toast" role="status" aria-live="polite"></div>
     </div>
     <div id="dro">
       <div class="dro-cell"><span class="dro-label">Status</span><span class="dro-val" id="droStatus">—</span></div>
@@ -189,7 +230,7 @@
       <div class="dro-cell"><span class="dro-label">Max compression</span><span class="dro-val" id="droMaxC">—</span></div>
       <div class="dro-cell"><span class="dro-label">Predicted failure</span><span class="dro-val" id="droFail">—</span></div>
       <div class="dro-cell"><span class="dro-label">Length / budget</span><span class="dro-val" id="droLen">—</span></div>
-      <div class="dro-msg" id="droMsg"></div>
+      <div class="dro-msg" id="droMsg" role="status" aria-live="polite"></div>
     </div>
   </div>
 
@@ -201,10 +242,32 @@
   </div>
 </main>
 
+<footer>
+  <!-- ================================================================
+       ATTRIBUTION / BRANDING BLOCK  ·  reusable across tools
+       GLOBAL (keep identical everywhere):
+         · "Designed by Bill Van Loo" -> billvanloo.com
+         · AI disclaimer
+         · Ko-fi support link
+         · MIT License link
+       PER-PROJECT (edit for each tool):
+         · the "[TrussStressVisualizer]" mailto subject tag
+         · the repo / source URL
+       ================================================================ -->
+  <span class="foot-by">Designed by <a href="https://billvanloo.com" target="_blank" rel="noopener"><strong>Bill Van Loo</strong></a></span>
+  <span class="foot-ai">Developed using Claude — please don't use this tool if you're uncomfortable using tools built with AI assistance.</span>
+  <span class="foot-spacer"></span>
+  <a href="mailto:billvanloo.tech+feedback@gmail.com?subject=%5BTrussStressVisualizer%5D%20Bug%20report">Report a bug</a>
+  <a href="mailto:billvanloo.tech+feedback@gmail.com?subject=%5BTrussStressVisualizer%5D%20Feature%20request">Request a feature</a>
+  <a href="https://ko-fi.com/billvanloo" target="_blank" rel="noopener">Support on Ko-fi</a>
+  <a href="https://github.com/billvanloo/TrussStressVisualizer/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+  <a href="https://github.com/billvanloo/TrussStressVisualizer" target="_blank" rel="noopener">View source</a>
+</footer>
+
 <div id="modalBack">
-  <div id="modal">
+  <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <button class="close" id="modalClose">Close</button>
-    <h2>How to use the visualizer</h2>
+    <h2 id="modalTitle">How to use the visualizer</h2>
     <p><strong>The setup mirrors the class bridge project:</strong> a 6-inch span between a pin support (left, ▲) and a roller (right, ○). The Tester load case models the Vernier tester's plate pulling straight down at the center of your deck, and predicts the load at which your first member fails.</p>
     <p><strong>Build:</strong> tap the sheet to add joints (they snap to the ½-inch grid). Switch to the Member tool and tap two joints to connect them. The bottom row of joints between the supports is your deck.</p>
     <p><strong>Read it:</strong> blue members are in tension (being stretched), red members are in compression (being squeezed). Thicker lines are closer to their limit. A member past its limit gets an ✕.</p>
