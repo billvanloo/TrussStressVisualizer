@@ -17,7 +17,8 @@ A method-of-joints truss analyzer — a tool for engineering education covering 
 - Moving load mode steps a point load across the deck joints
 - FBD inspector: tap any joint to see its force vectors and the ΣF = 0 check — the same diagram students draw by hand
 - Teachable determinacy errors (mechanism / indeterminate / unstable geometry), each explained in plain language with the 2j = m + 3 rule
-- Material presets (balsa, pine, birch, PLA), member-length budget, PNG export, printable design record, JSON save/load
+- Undo/redo (buttons or Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z) and browser autosave, so a misclick or a refresh doesn't lose the work
+- Material presets (balsa, pine, birch, PLA), member-length budget, PNG export, printable design record, JSON save/load (downloads carry the student's name)
 
 ## Teacher notes
 

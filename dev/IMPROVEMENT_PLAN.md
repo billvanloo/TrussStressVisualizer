@@ -17,9 +17,17 @@ The Phase 2 **quick wins are also done**: contrast fixes (zero-force gray
 force labels with a legible paper pill (§3.3); on-screen load-case explanation
 in both control panels (§3.4); downloads named from the student name (§3.5); and
 a joint grab radius capped below half the grid spacing so touch users stop
-catching the neighbouring joint (§3.6). Still pending: per-member materials
-(§3.1, calc already respects `mb.limit`, needs assignment UI), undo/redo (§2.2),
-autosave (§2.4), keyboard + screen reader (§2.3), and phone layout.
+catching the neighbouring joint (§3.6).
+
+**Undo/redo (§2.2) and autosave (§2.4) are also done.** Undo/redo are snapshot
+based over the serialized design (Undo/Redo buttons + Ctrl/Cmd+Z and
+Ctrl/Cmd+Shift+Z); every geometry mutation, clear-all, load, and parameter
+change records one step (typing bursts and drags coalesce to a single step).
+Autosave writes a debounced snapshot to `localStorage` on every change and
+restores it on boot behind a non-modal "Start fresh / Keep it" notice; a failed
+or blocked `localStorage` degrades silently. Still pending: per-member materials
+(§3.1, calc already respects `mb.limit`, needs assignment UI), keyboard +
+screen reader (§2.3), and phone layout.
 
 **Key decision carried into this plan:** buckling is addressed as a **warning
 only**, not as a change to the physics. The solver keeps its ideal

@@ -31,6 +31,8 @@
   .hbtns{display:flex;gap:6px;flex-wrap:wrap}
   .hbtns button{font:600 12px var(--font-ui);letter-spacing:.05em;padding:7px 10px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);border-radius:3px;cursor:pointer}
   .hbtns button:hover{background:var(--ink);color:var(--paper)}
+  .hbtns button:disabled{opacity:.38;cursor:not-allowed}
+  .hbtns button:disabled:hover{background:var(--paper);color:var(--ink)}
 
   main{flex:1;display:flex;min-height:0}
   #palette{width:168px;border-right:1.5px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;background:#F1EFE8}
@@ -58,6 +60,9 @@
   canvas#board{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
   #hint{position:absolute;left:12px;top:10px;font:12px var(--font-ui);color:var(--ink-soft);background:rgba(246,245,240,.88);padding:4px 8px;border-radius:3px;pointer-events:none;max-width:70%}
   #toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:var(--ink);color:var(--paper);font:12px var(--font-ui);padding:7px 14px;border-radius:4px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:80%}
+  #restoreNotice{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:none;align-items:center;gap:10px;background:var(--dykem-soft);border:1.5px solid var(--dykem);color:var(--ink);font:12px var(--font-ui);padding:6px 10px;border-radius:4px;max-width:88%;z-index:5}
+  #restoreNotice button{font:600 11px var(--font-ui);border:1.5px solid var(--dykem);background:#fff;color:var(--dykem);border-radius:3px;padding:3px 8px;cursor:pointer}
+  #restoreNotice button:hover{background:var(--dykem);color:#fff}
 
   #dro{display:flex;align-items:stretch;background:var(--dro-bg);border-top:3px solid var(--ink);padding:8px 12px;flex-wrap:wrap}
   .dro-cell{display:flex;flex-direction:column;justify-content:center;padding:2px 16px 2px 6px;border-right:1px solid #343A41;min-width:110px}
@@ -160,6 +165,8 @@
   <div class="spacer"></div>
   <div class="namewrap">Name <input id="studentName" placeholder="Your name" maxlength="40"></div>
   <div class="hbtns">
+    <button id="btnUndo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶ Undo</button>
+    <button id="btnRedo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>↷ Redo</button>
     <button id="btnPng">Export image</button>
     <button id="btnReport">Report / PDF</button>
     <button id="btnSave">Save</button>
@@ -224,6 +231,11 @@
       <canvas id="board"></canvas>
       <div id="hint">Span: 6.00 in between supports (pin ▲ left, roller ○ right). Tap the sheet to add joints on the ½-inch grid; use the Member tool to connect them.</div>
       <div id="toast" role="status" aria-live="polite"></div>
+      <div id="restoreNotice" role="status" aria-live="polite">
+        <span>Restored your last design.</span>
+        <button id="rnFresh">Start fresh</button>
+        <button id="rnKeep">Keep it</button>
+      </div>
     </div>
     <div id="dro">
       <div class="dro-cell"><span class="dro-label">Status</span><span class="dro-val" id="droStatus">—</span></div>
@@ -526,6 +538,7 @@ function resolve(){
   updateDRO();
   drawFBD();
   draw();
+  scheduleAutosave();
 }
 function updateDRO(){
   const st=document.getElementById('droStatus');
@@ -815,6 +828,7 @@ canvas.addEventListener('pointerdown', ev=>{
     if (hit) { toast('A joint is already there.'); return; }
     const x=snap(w.x), y=snap(w.y);
     if (x<WORLD.x0||x>WORLD.x1||y<WORLD.y0+0.5||y>WORLD.y1-0.25) return;
+    pushHistory();
     S.nodes.push({id:uid('n'), x, y});
     resolve(); return;
   }
@@ -824,12 +838,13 @@ canvas.addEventListener('pointerdown', ev=>{
     if (S.memberFirst===hit.id){ S.memberFirst=null; draw(); return; }
     const dup=S.members.some(mb=>(mb.a===S.memberFirst&&mb.b===hit.id)||(mb.b===S.memberFirst&&mb.a===hit.id));
     if (dup){ toast('Those joints are already connected.'); S.memberFirst=null; draw(); return; }
+    pushHistory();
     S.members.push({id:uid('m'), a:S.memberFirst, b:hit.id});
     S.memberFirst=null;
     resolve(); return;
   }
   if (S.tool==='move'){
-    if (hit && !hit.support){ S.drag=hit.id; }
+    if (hit && !hit.support){ S.drag=hit.id; S.dragStarted=false; }
     else if (hit && hit.support){ toast('Supports are fixed — they match the tester frame.'); }
     return;
   }
@@ -840,6 +855,7 @@ canvas.addEventListener('pointerdown', ev=>{
   if (S.tool==='delete'){
     if (hit){
       if (hit.support){ toast('Supports can\u2019t be removed.'); return; }
+      pushHistory();
       S.members=S.members.filter(mb=>mb.a!==hit.id&&mb.b!==hit.id);
       S.nodes=S.nodes.filter(n=>n.id!==hit.id);
       if (S.inspected===hit.id) S.inspected=null;
@@ -852,7 +868,7 @@ canvas.addEventListener('pointerdown', ev=>{
       const d=segDist(w,a,b)*PX;
       if (d<10 && (!bestM||d<bestM.d)) bestM={mb,d};
     }
-    if (bestM){ S.members=S.members.filter(x=>x.id!==bestM.mb.id); resolve(); }
+    if (bestM){ pushHistory(); S.members=S.members.filter(x=>x.id!==bestM.mb.id); resolve(); }
     return;
   }
 });
@@ -860,8 +876,11 @@ canvas.addEventListener('pointermove', ev=>{
   if (S.tool!=='move'||!S.drag) return;
   const w=toWorld({x:ev.clientX-canvas.getBoundingClientRect().left, y:ev.clientY-canvas.getBoundingClientRect().top});
   const n=nodeById(S.drag); if(!n) return;
-  n.x=snap(Math.max(WORLD.x0,Math.min(WORLD.x1,w.x)));
-  n.y=snap(Math.max(WORLD.y0+0.5,Math.min(WORLD.y1-0.25,w.y)));
+  const nx=snap(Math.max(WORLD.x0,Math.min(WORLD.x1,w.x)));
+  const ny=snap(Math.max(WORLD.y0+0.5,Math.min(WORLD.y1-0.25,w.y)));
+  if (nx===n.x && ny===n.y) return; // no grid change yet — skip (keeps drag to one undo step)
+  if (!S.dragStarted){ pushHistory(); S.dragStarted=true; } // snapshot pre-drag state, once
+  n.x=nx; n.y=ny;
   resolve();
 });
 canvas.addEventListener('pointerup', ()=>{ S.drag=null; });
@@ -887,6 +906,7 @@ function setTool(t){
 }
 document.getElementById('toolClear').addEventListener('click',()=>{
   if (!confirm('Clear all joints and members?')) return;
+  pushHistory();
   S.nodes=S.nodes.filter(n=>n.support);
   S.members=[]; S.inspected=null; S.memberFirst=null;
   resolve();
@@ -894,6 +914,7 @@ document.getElementById('toolClear').addEventListener('click',()=>{
 document.getElementById('lmVsmt').addEventListener('click',()=>setLoadMode('vsmt'));
 document.getElementById('lmMoving').addEventListener('click',()=>setLoadMode('moving'));
 function setLoadMode(m){
+  if (m!==S.loadMode) pushHistory();
   S.loadMode=m;
   document.getElementById('lmVsmt').classList.toggle('on', m==='vsmt');
   document.getElementById('lmMoving').classList.toggle('on', m==='moving');
@@ -902,12 +923,13 @@ function setLoadMode(m){
   resolve();
 }
 document.getElementById('appliedLoad').addEventListener('input',e=>{ S.applied=Number(e.target.value)||100; resolve(); });
-document.getElementById('twoTrussChk').addEventListener('change',e=>{ S.twoTruss=e.target.checked; resolve(); });
+document.getElementById('twoTrussChk').addEventListener('change',e=>{ pushHistory(); S.twoTruss=e.target.checked; resolve(); });
 document.getElementById('movingLoad').addEventListener('input',e=>{ S.movingLoad=Number(e.target.value)||100; resolve(); });
 document.getElementById('stepL').addEventListener('click',()=>{ S.movingIdx--; resolve(); });
 document.getElementById('stepR').addEventListener('click',()=>{ S.movingIdx++; resolve(); });
 document.getElementById('materialSel').addEventListener('change',e=>{
   if (e.target.value!=='custom'){
+    pushHistory();
     S.limit=Number(e.target.value);
     document.getElementById('limitInput').value=S.limit;
   }
@@ -1052,6 +1074,7 @@ document.getElementById('fileInput').addEventListener('change',ev=>{
     try{
       const parsed=applyDesign(JSON.parse(rd.result));
       if (!parsed) throw new Error('bad');
+      pushHistory();
       Object.assign(S, parsed);
       S.inspected=null; S.memberFirst=null;
       syncControlsFromState();
@@ -1067,9 +1090,121 @@ document.getElementById('btnHelp').addEventListener('click',()=>document.getElem
 document.getElementById('modalClose').addEventListener('click',()=>document.getElementById('modalBack').classList.remove('open'));
 document.getElementById('modalBack').addEventListener('click',ev=>{ if(ev.target.id==='modalBack') ev.target.classList.remove('open'); });
 
+/* =====================================================================
+   UNDO / REDO — snapshot-based history over the serialized design.
+   pushHistory() records the pre-mutation state; call it before any change.
+   ===================================================================== */
+const HISTORY_CAP=50;
+let undoStack=[], redoStack=[];
+function snapshot(){ return JSON.stringify(serializeDesign(S)); }
+function pushHistory(){
+  const snap=snapshot();
+  if (undoStack.length && undoStack[undoStack.length-1]===snap){
+    redoStack.length=0; updateUndoButtons(); return; // already captured; just invalidate redo
+  }
+  undoStack.push(snap);
+  if (undoStack.length>HISTORY_CAP) undoStack.shift();
+  redoStack.length=0;
+  updateUndoButtons();
+}
+function restoreSnapshot(str){
+  const parsed=applyDesign(JSON.parse(str));
+  if (!parsed) return;
+  Object.assign(S, parsed);
+  S.inspected=null; S.memberFirst=null; S.drag=null;
+  syncControlsFromState();
+  resolve();
+}
+function undo(){
+  if (!undoStack.length) return;
+  redoStack.push(snapshot());
+  restoreSnapshot(undoStack.pop());
+  updateUndoButtons();
+  toast('Undo');
+}
+function redo(){
+  if (!redoStack.length) return;
+  undoStack.push(snapshot());
+  restoreSnapshot(redoStack.pop());
+  updateUndoButtons();
+  toast('Redo');
+}
+function updateUndoButtons(){
+  document.getElementById('btnUndo').disabled=!undoStack.length;
+  document.getElementById('btnRedo').disabled=!redoStack.length;
+}
+document.getElementById('btnUndo').addEventListener('click',undo);
+document.getElementById('btnRedo').addEventListener('click',redo);
+// Number fields: capture the pre-edit state on focus and record it as one undo
+// step on commit, but only if the value actually changed — so a whole typing
+// burst collapses to a single step and a no-op focus adds nothing.
+['appliedLoad','movingLoad','limitInput','budgetInput'].forEach(id=>{
+  const el=document.getElementById(id);
+  let pre=null;
+  el.addEventListener('focus',()=>{ pre=snapshot(); });
+  el.addEventListener('change',()=>{
+    if (pre!=null && pre!==snapshot()){
+      undoStack.push(pre);
+      if (undoStack.length>HISTORY_CAP) undoStack.shift();
+      redoStack.length=0;
+      updateUndoButtons();
+    }
+    pre=null;
+  });
+});
+document.addEventListener('keydown',e=>{
+  const t=e.target;
+  if (t && (t.tagName==='INPUT'||t.tagName==='SELECT'||t.tagName==='TEXTAREA')) return; // let fields handle their own undo
+  const mod=e.ctrlKey||e.metaKey;
+  if (!mod) return;
+  const k=e.key.toLowerCase();
+  if (k==='z' && !e.shiftKey){ e.preventDefault(); undo(); }
+  else if ((k==='z' && e.shiftKey) || k==='y'){ e.preventDefault(); redo(); }
+});
+
+/* =====================================================================
+   AUTOSAVE — debounced write to localStorage so a refresh or dead battery
+   doesn't erase the work. Everything stays local to the browser.
+   ===================================================================== */
+const AUTOSAVE_KEY='tsv:autosave:v1';
+let autosaveTimer=null;
+function scheduleAutosave(){
+  if (autosaveTimer) return;
+  autosaveTimer=setTimeout(()=>{ autosaveTimer=null; writeAutosave(); }, 400);
+}
+function writeAutosave(){
+  try{ localStorage.setItem(AUTOSAVE_KEY, snapshot()); }catch(e){/* full or blocked — degrade silently */}
+}
+function loadAutosave(){
+  let raw;
+  try{ raw=localStorage.getItem(AUTOSAVE_KEY); }catch(e){ return false; }
+  if (!raw) return false;
+  try{
+    const parsed=applyDesign(JSON.parse(raw));
+    if (!parsed) return false;
+    Object.assign(S, parsed);
+    return (S.members.length>0 || S.nodes.some(n=>!n.support)); // only note a restore of real work
+  }catch(e){ return false; }
+}
+function showRestoreNotice(){ document.getElementById('restoreNotice').style.display='inline-flex'; }
+function hideRestoreNotice(){ document.getElementById('restoreNotice').style.display='none'; }
+document.getElementById('rnKeep').addEventListener('click',hideRestoreNotice);
+document.getElementById('rnFresh').addEventListener('click',()=>{
+  pushHistory();
+  S.nodes=[{id:'S1',x:0,y:0,support:'pin'},{id:'S2',x:SPAN,y:0,support:'roller'}];
+  S.members=[]; S.inspected=null; S.memberFirst=null; S.drag=null;
+  resolve();
+  hideRestoreNotice();
+  toast('Started fresh — Undo to bring the old design back.');
+});
+
 /* ---------- boot ---------- */
+const restored=loadAutosave();
+syncControlsFromState();
 resize();
 resolve();
+updateUndoButtons();
+if (restored) showRestoreNotice();
 </script>
 </body>
 </html>
