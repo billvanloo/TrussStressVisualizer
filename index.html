@@ -11,7 +11,7 @@
     --ink:#23272C; --ink-soft:#5A6068; --line:#C9C6BA;
     --dykem:#1D5FA8; --dykem-soft:#E3ECF7;
     --tension:#1D5FA8; --compression:#B3402F;
-    --brass:#B08A2E; --buckle:#A15A16;
+    --brass:#9A7420; --buckle:#A15A16;
     --pass:#2E7D46; --fail:#B3402F;
     --dro-bg:#1D2126; --dro-amber:#FFB000; --dro-dim:#7A6428;
     --font-ui:"Avenir Next","Segoe UI","Trebuchet MS",system-ui,sans-serif;
@@ -187,12 +187,13 @@
     <div id="vsmtCtl">
       <div class="palnum" style="margin-top:6px">Applied <input id="appliedLoad" type="number" value="100" min="1" max="2000" step="10"> N</div>
       <label class="chk" style="margin-top:6px"><input type="checkbox" id="twoTrussChk" checked> Two truss planes — each side carries half the tester load</label>
+      <div class="palnote">With two planes on, each truss carries half the tester load and the predicted failure is the full tester load. <strong>Moving mode puts the whole load on one plane</strong>, so its member forces aren't directly comparable to Tester mode.</div>
     </div>
     <div id="movingCtl" style="display:none">
       <div class="palnum" style="margin-top:6px">Load <input id="movingLoad" type="number" value="100" min="1" max="2000" step="10"> N</div>
       <div class="pal-label">Position</div>
       <div class="stepbtns"><button id="stepL">◀</button><button id="stepR">▶</button></div>
-      <div class="palnote">Steps the load across the deck joints, like a vehicle crossing.</div>
+      <div class="palnote">Steps a point load across the deck joints, like a vehicle crossing. The whole load sits on this <strong>single</strong> truss plane — no two-plane split — so member forces run higher than Tester mode and aren't directly comparable.</div>
     </div>
 
     <div class="pal-label">Material (per-member limit)</div>
@@ -620,28 +621,31 @@ function draw(){
   for (const mb of S.members){
     const a=nodeById(mb.a), b=nodeById(mb.b);
     if (!a||!b) continue;
-    let color='#8B929B', width=2.5, over=false, f=0;
+    let color='#7E858D', width=2.5, over=false, f=0;
     if (solved && solved.status==='ok'){
       f=solved.forces[mb.id]||0;
       const util=Math.min(1, Math.abs(f)/S.limit);
       width=2+util*7;
       over=Math.abs(f)>S.limit+1e-9;
-      color = f>1e-9 ? '#1D5FA8' : (f<-1e-9 ? '#B3402F' : '#8B929B');
+      color = f>1e-9 ? '#1D5FA8' : (f<-1e-9 ? '#B3402F' : '#7E858D');
     }
     ctx.strokeStyle=color; ctx.lineWidth=width; ctx.lineCap='round';
     ctx.beginPath(); ctx.moveTo(wx(a.x),wy(a.y)); ctx.lineTo(wx(b.x),wy(b.y)); ctx.stroke();
-    // force label
+    // force label — horizontal with a paper-colored pill so it stays legible
+    // over lines and grid even when members get crowded.
     if (solved && solved.status==='ok' && Math.abs(f)>1e-9){
       const mxp=(wx(a.x)+wx(b.x))/2, myp=(wy(a.y)+wy(b.y))/2;
-      ctx.font='600 10px ui-monospace,Consolas,monospace';
-      ctx.fillStyle=color; ctx.textAlign='center'; ctx.textBaseline='bottom';
-      ctx.save();
-      ctx.translate(mxp,myp);
-      let ang=Math.atan2(wy(b.y)-wy(a.y), wx(b.x)-wx(a.x));
-      if (ang>Math.PI/2||ang<-Math.PI/2) ang+=Math.PI;
-      ctx.rotate(ang);
-      ctx.fillText(tFmt(Math.abs(f))+(f>0?' T':' C'), 0, -3);
-      ctx.restore();
+      const label=tFmt(Math.abs(f))+(f>0?' T':' C');
+      ctx.font='600 11px ui-monospace,Consolas,monospace';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      const tw=ctx.measureText(label).width, padX=3, bh=14;
+      ctx.fillStyle='rgba(246,245,240,.82)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(mxp-tw/2-padX, myp-bh/2, tw+padX*2, bh, 3);
+      else ctx.rect(mxp-tw/2-padX, myp-bh/2, tw+padX*2, bh);
+      ctx.fill();
+      ctx.fillStyle=color;
+      ctx.fillText(label, mxp, myp);
     }
     if (over){
       const mxp=(wx(a.x)+wx(b.x))/2, myp=(wy(a.y)+wy(b.y))/2;
@@ -683,14 +687,14 @@ function draw(){
     for (const ld of loadInfo.loads){
       const n=nodeById(ld.node); if(!n) continue;
       const x=wx(n.x), y=wy(n.y);
-      ctx.strokeStyle='#B08A2E'; ctx.fillStyle='#B08A2E'; ctx.lineWidth=3;
+      ctx.strokeStyle='#9A7420'; ctx.fillStyle='#9A7420'; ctx.lineWidth=3;
       ctx.beginPath(); ctx.moveTo(x, y-46); ctx.lineTo(x, y-12); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(x, y-8); ctx.lineTo(x-6, y-18); ctx.lineTo(x+6, y-18); ctx.closePath(); ctx.fill();
       ctx.font='700 11px ui-monospace,Consolas,monospace'; ctx.textAlign='center';
       ctx.fillText(tFmt(Math.abs(ld.fy))+' N', x, y-52);
       if (S.loadMode==='vsmt'){
         // 2x2 plate icon
-        ctx.strokeStyle='#B08A2E'; ctx.lineWidth=2;
+        ctx.strokeStyle='#9A7420'; ctx.lineWidth=2;
         ctx.strokeRect(x-PX, y-70, 2*PX, 8);
         ctx.font='9px ui-monospace,Consolas,monospace';
         ctx.fillText('2\u2033 plate', x, y-74);
@@ -745,12 +749,12 @@ function drawFBD(){
     const ux=(other.x-n.x)/L, uy=(other.y-n.y)/L;
     const f=solved.forces[mb.id]||0;
     // Tension pulls the joint toward the other node: force on joint = f * u
-    vectors.push({fx:f*ux, fy:f*uy, label:tFmt(Math.abs(f))+(f>=0?' T':' C'), color: f>1e-9?'#1D5FA8':(f<-1e-9?'#B3402F':'#8B929B')});
+    vectors.push({fx:f*ux, fy:f*uy, label:tFmt(Math.abs(f))+(f>=0?' T':' C'), color: f>1e-9?'#1D5FA8':(f<-1e-9?'#B3402F':'#7E858D')});
   }
   if (n.id==='S1' && solved.reactions){ vectors.push({fx:solved.reactions.pin.x, fy:solved.reactions.pin.y, label:'R', color:'#23272C'}); }
   if (n.id==='S2' && solved.reactions){ vectors.push({fx:0, fy:solved.reactions.roller.y, label:'R', color:'#23272C'}); }
   for (const ld of (loadInfo?loadInfo.loads:[])){
-    if (ld.node===n.id) vectors.push({fx:ld.fx||0, fy:ld.fy||0, label:tFmt(Math.abs(ld.fy))+' N load', color:'#B08A2E'});
+    if (ld.node===n.id) vectors.push({fx:ld.fx||0, fy:ld.fy||0, label:tFmt(Math.abs(ld.fy))+' N load', color:'#9A7420'});
   }
   const maxMag=Math.max.apply(null, vectors.map(v=>Math.hypot(v.fx,v.fy)).concat([1]));
   // joint dot
@@ -791,10 +795,14 @@ function toast(msg){
 }
 function snap(v){ return Math.round(v/GRID)*GRID; }
 function hitNode(w){
+  // Cap the grab radius below half the grid spacing so it can never reach a
+  // neighbouring grid point (grid points are GRID*PX apart), which is what made
+  // touch users catch the joint next door when zoomed out.
+  const grab=Math.min(16, 0.45*GRID*PX);
   let best=null;
   for (const n of S.nodes){
     const d=Math.hypot(n.x-w.x,n.y-w.y)*PX;
-    if (d<16 && (!best||d<best.d)) best={n,d};
+    if (d<grab && (!best||d<best.d)) best={n,d};
   }
   return best?best.n:null;
 }
@@ -922,6 +930,13 @@ function titleLines(){
   const mode=S.loadMode==='vsmt'?'Tester load '+S.applied+' N'+(S.twoTruss?' (two planes, '+tFmt(S.applied/2)+' N per truss)':''):'Moving load '+S.movingLoad+' N';
   return {name,date,mode};
 }
+// Downloaded files carry the student's name so a class set doesn't collide as
+// a pile of identical truss-design.json / truss-<date>.png files.
+function designFilename(ext){
+  const slug=(S.name||'').trim().replace(/[^a-zA-Z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
+  const date=new Date().toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}).replace(/[ ,]+/g,'-');
+  return 'truss'+(slug?'-'+slug:'')+'-'+date+'.'+ext;
+}
 function snapshotDataURL(){
   const off=document.createElement('canvas');
   off.width=CW; off.height=CH;
@@ -956,7 +971,7 @@ document.getElementById('btnPng').addEventListener('click',()=>{
     }
     c.fillText(line, pad, y);
     const a=document.createElement('a');
-    a.download='truss-'+t.date.replace(/[ ,]/g,'-')+'.png';
+    a.download=designFilename('png');
     a.href=off.toDataURL('image/png');
     a.click();
   };
@@ -1010,7 +1025,7 @@ document.getElementById('btnReport').addEventListener('click',()=>{
 document.getElementById('btnSave').addEventListener('click',()=>{
   const data=serializeDesign(S);
   const a=document.createElement('a');
-  a.download='truss-design.json';
+  a.download=designFilename('json');
   a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data,null,2));
   a.click();
 });

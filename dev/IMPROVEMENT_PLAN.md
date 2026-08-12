@@ -10,7 +10,16 @@ warning (§2.1) are **done** — pure helpers `bucklingRiskMembers`, `labelJoint
 inline, parity-checked), with 18 new unit tests. Save/Load now route through the
 serializer (fixing the applied-load round-trip bug), the readout/report/FBD use
 readable J-labels, and long compression members are flagged with an amber ⚠
-overlay plus an advisory line. Everything below §2.1 is still pending.
+overlay plus an advisory line.
+
+The Phase 2 **quick wins are also done**: contrast fixes (zero-force gray
+`#8B929B`→`#7E858D` ≈3.4:1, load arrows `#B08A2E`→`#9A7420` ≈3.9:1), horizontal
+force labels with a legible paper pill (§3.3); on-screen load-case explanation
+in both control panels (§3.4); downloads named from the student name (§3.5); and
+a joint grab radius capped below half the grid spacing so touch users stop
+catching the neighbouring joint (§3.6). Still pending: per-member materials
+(§3.1, calc already respects `mb.limit`, needs assignment UI), undo/redo (§2.2),
+autosave (§2.4), keyboard + screen reader (§2.3), and phone layout.
 
 **Key decision carried into this plan:** buckling is addressed as a **warning
 only**, not as a change to the physics. The solver keeps its ideal
