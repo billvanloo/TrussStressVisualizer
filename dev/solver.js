@@ -138,6 +138,97 @@ function tFmt(n) {
   const r = a >= 100 ? Math.round(n) : Math.round(n * 10) / 10;
   return String(r);
 }
+
+// ---- Buckling advisory (pure) ----
+// The physics model deliberately ignores buckling (see project notes). This
+// helper only marks the long compression members most likely to bow, so the UI
+// can draw a warning overlay and readout line. It does NOT touch solved forces,
+// maxC, or the predicted failure load — it is a display flag only.
+// Scale-free rule: among compression members, flag those whose length is within
+// BUCKLE_WARN_RATIO of the longest compression member; that longest one is the
+// primary risk ("worst"). Ratio is overridable via opts.ratio for tuning.
+const BUCKLE_WARN_RATIO = 0.9;
+function bucklingRiskMembers(nodes, members, forces, opts) {
+  const ratio = (opts && opts.ratio != null) ? opts.ratio : BUCKLE_WARN_RATIO;
+  const nodeById = {}; nodes.forEach(n => nodeById[n.id] = n);
+  const comp = [];
+  for (const mb of members) {
+    const f = forces ? forces[mb.id] : undefined;
+    if (f == null || f >= -1e-9) continue; // compression only (tension positive)
+    const a = nodeById[mb.a], b = nodeById[mb.b];
+    if (!a || !b) continue;
+    comp.push({ id: mb.id, L: tDist(a, b) });
+  }
+  if (!comp.length) return { risky: new Set(), worst: null, worstLen: 0, count: 0, anyCompression: false };
+  let worst = comp[0];
+  for (const c of comp) if (c.L > worst.L) worst = c;
+  const cut = worst.L * ratio;
+  const risky = new Set();
+  for (const c of comp) if (c.L >= cut - 1e-9) risky.add(c.id);
+  return { risky, worst: worst.id, worstLen: worst.L, count: risky.size, anyCompression: true };
+}
+
+// ---- Readable labels (pure) ----
+// Stable, readable joint labels J1..Jn ordered left-to-right then bottom-to-top.
+// Display only; internal node ids are unchanged.
+function labelJoints(nodes) {
+  const sorted = nodes.slice().sort((a, b) => (a.x - b.x) || (a.y - b.y));
+  const labels = {};
+  sorted.forEach((n, i) => labels[n.id] = 'J' + (i + 1));
+  return labels;
+}
+function memberLabel(mb, labels) {
+  return (labels[mb.a] || '?') + '–' + (labels[mb.b] || '?');
+}
+
+// ---- Persistence (pure) ----
+// Serialize the persistable design document — the full load state
+// (loadMode/applied/movingLoad/movingIdx/twoTruss), per-member limits, and the
+// student name — so a saved or autosaved design round-trips exactly.
+function serializeDesign(S) {
+  return {
+    version: 2,
+    name: S.name || '',
+    nodes: S.nodes.map(n => {
+      const o = { id: n.id, x: n.x, y: n.y };
+      if (n.support) o.support = n.support;
+      return o;
+    }),
+    members: S.members.map(m => {
+      const o = { id: m.id, a: m.a, b: m.b };
+      if (m.limit != null) o.limit = m.limit;
+      return o;
+    }),
+    limit: S.limit, budget: S.budget,
+    loadMode: S.loadMode, applied: S.applied,
+    movingLoad: S.movingLoad, movingIdx: S.movingIdx || 0,
+    twoTruss: S.twoTruss
+  };
+}
+
+// Validate + normalize a loaded document into a partial state object to merge
+// into S. Returns null if it is not a usable truss. Restores the load fields
+// the previous loader silently dropped (applied/loadMode/movingLoad/movingIdx).
+function applyDesign(doc) {
+  if (!doc || !Array.isArray(doc.nodes) || !Array.isArray(doc.members)) return null;
+  if (!doc.nodes.some(n => n.support === 'pin') || !doc.nodes.some(n => n.support === 'roller')) return null;
+  const out = { nodes: doc.nodes, members: doc.members };
+  if (doc.name != null) out.name = String(doc.name);
+  if (doc.limit != null) out.limit = doc.limit;
+  if (doc.budget != null) out.budget = doc.budget;
+  if (doc.loadMode === 'vsmt' || doc.loadMode === 'moving') out.loadMode = doc.loadMode;
+  if (doc.applied != null) out.applied = doc.applied;
+  if (doc.movingLoad != null) out.movingLoad = doc.movingLoad;
+  if (doc.movingIdx != null) out.movingIdx = doc.movingIdx;
+  if (doc.twoTruss != null) out.twoTruss = !!doc.twoTruss;
+  let maxN = 0;
+  [...doc.nodes, ...doc.members].forEach(o => { const mm = /\d+$/.exec(o.id); if (mm) maxN = Math.max(maxN, Number(mm[0])); });
+  out.idc = maxN;
+  return out;
+}
 // __PURE_END__
 
-if (typeof module !== 'undefined') module.exports = { solveTruss, failureLoad, tDist, tFmt };
+if (typeof module !== 'undefined') module.exports = {
+  solveTruss, failureLoad, tDist, tFmt,
+  bucklingRiskMembers, labelJoints, memberLabel, serializeDesign, applyDesign
+};

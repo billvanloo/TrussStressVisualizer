@@ -11,7 +11,8 @@ A method-of-joints truss analyzer — a tool for engineering education covering 
 ## Features
 
 - Build joints and members on a ½-inch grid; live method-of-joints solve on every change
-- Blue = tension, red = compression; line thickness scales with utilization; ✕ marks over-limit members; the predicted first-to-fail member is dash-highlighted
+- Blue = tension, red = compression; line thickness scales with utilization; ✕ marks over-limit members; the predicted first-to-fail member is dash-highlighted; long compression members likely to buckle are flagged (amber dashed, ⚠) with an advisory that the prediction ignores buckling
+- Readable joint/member labels (J1, J2, …; members read "J1–J2") in the readout, free-body diagram, and printable report
 - **Tester load case** mirrors the physical rig: center pull at the deck, a two-truss-planes toggle that splits the load, failure-load prediction, and a warning when the prediction exceeds the tester's 1000 N load cell
 - Moving load mode steps a point load across the deck joints
 - FBD inspector: tap any joint to see its force vectors and the ΣF = 0 check — the same diagram students draw by hand
@@ -22,7 +23,7 @@ A method-of-joints truss analyzer — a tool for engineering education covering 
 
 - **Calibrate the material limits.** The per-member force limits shipped with the presets are placeholders. Break single members of each material on the tester and enter real values — the interface accepts custom limits and says so.
 - The model is ideal pin-jointed 2D truss analysis: members carry only axial force. Real bridges fail through glue joints, buckling, and imperfections, so predicted failure loads will differ from tested ones. The pattern of which members work hardest is the transferable insight, and the help panel says this to students directly.
-- Buckling (length-dependent compression limits) is the planned Phase 2 upgrade.
+- **Buckling is flagged, not modeled.** The tool now marks the long compression members most likely to bow (amber dashed, ⚠ on the worst) and adds a readout/report line reminding students the predicted failure load is optimistic because buckling is ignored. The physics is unchanged — no length-dependent compression limit — so predicted failure loads still come only from the per-member force limit. A real length-dependent buckling model remains a possible future upgrade.
 
 ## Development
 

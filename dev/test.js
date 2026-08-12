@@ -1,4 +1,4 @@
-const { solveTruss, failureLoad } = require('./solver.js');
+const { solveTruss, failureLoad, bucklingRiskMembers, labelJoints, memberLabel, serializeDesign, applyDesign } = require('./solver.js');
 
 let passed = 0, failed = 0;
 function eq(name, actual, expected, eps = 0.01) {
@@ -133,6 +133,55 @@ console.log('T8: off-center load -> asymmetric reactions');
   eq('status ok', r.status, 'ok');
   eq('pin Ry = 75 (load at quarter span)', r.reactions.pin.y, 75);
   eq('roller Ry = 25', r.reactions.roller.y, 25);
+}
+
+console.log('T9: buckling advisory flags long compression members (display only)');
+{
+  const nodes = [{id:'A',x:0,y:0},{id:'B',x:6,y:0},{id:'C',x:3,y:0.5},{id:'D',x:3,y:2}];
+  const members = [{id:'long',a:'A',b:'B'},{id:'short',a:'A',b:'C'},{id:'tens',a:'C',b:'D'}];
+  const forces = { long:-50, short:-10, tens:+30 };
+  const r = bucklingRiskMembers(nodes, members, forces);
+  eq('worst is the longest compression member', r.worst, 'long');
+  eq('long compression member flagged', r.risky.has('long'), true);
+  eq('short compression member not flagged', r.risky.has('short'), false);
+  eq('tension member never flagged', r.risky.has('tens'), false);
+  eq('anyCompression true', r.anyCompression, true);
+}
+
+console.log('T10: no compression -> no buckling warning');
+{
+  const nodes = [{id:'A',x:0,y:0},{id:'B',x:6,y:0}];
+  const r = bucklingRiskMembers(nodes, [{id:'AB',a:'A',b:'B'}], { AB:+40 });
+  eq('anyCompression false', r.anyCompression, false);
+  eq('no worst member', r.worst, null);
+}
+
+console.log('T11: readable joint + member labels (left-to-right)');
+{
+  const nodes = [{id:'S2',x:6,y:0},{id:'S1',x:0,y:0},{id:'T',x:3,y:1.5}];
+  const L = labelJoints(nodes);
+  eq('leftmost joint is J1', L['S1'], 'J1');
+  eq('rightmost joint is J3', L['S2'], 'J3');
+  eq('member label reads in id order', memberLabel({a:'S1',b:'T'}, L), 'J1–J2');
+}
+
+console.log('T12: serialize/apply round-trips the full load state');
+{
+  const S = {
+    name:'Ada',
+    nodes:[{id:'S1',x:0,y:0,support:'pin'},{id:'S2',x:6,y:0,support:'roller'},{id:'n1',x:3,y:0}],
+    members:[{id:'m1',a:'S1',b:'n1',limit:150},{id:'m2',a:'n1',b:'S2'}],
+    limit:90, budget:60, loadMode:'moving', applied:250, movingLoad:120, movingIdx:1, twoTruss:false
+  };
+  const back = applyDesign(serializeDesign(S));
+  eq('applied load preserved', back.applied, 250);
+  eq('loadMode preserved', back.loadMode, 'moving');
+  eq('movingIdx preserved', back.movingIdx, 1);
+  eq('twoTruss preserved', back.twoTruss, false);
+  eq('name preserved', back.name, 'Ada');
+  eq('per-member limit preserved', back.members[0].limit, 150);
+  eq('idc from max id suffix', back.idc, 2);
+  eq('rejects a truss with no supports', applyDesign({nodes:[{id:'x',x:0,y:0}],members:[]}), null);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

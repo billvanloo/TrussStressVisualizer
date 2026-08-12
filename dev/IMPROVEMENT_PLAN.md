@@ -4,6 +4,14 @@ Response to the August 12, 2026 evaluation report. This plan turns each issue
 raised into a concrete, code-level implementation approach, sequenced by the
 report's own priority tiers (Fix first / Fix next / Later).
 
+**Implementation status:** the two foundation refactors (§1a) and the buckling
+warning (§2.1) are **done** — pure helpers `bucklingRiskMembers`, `labelJoints`,
+`memberLabel`, `serializeDesign`, `applyDesign` live in `dev/solver.js` (mirrored
+inline, parity-checked), with 18 new unit tests. Save/Load now route through the
+serializer (fixing the applied-load round-trip bug), the readout/report/FBD use
+readable J-labels, and long compression members are flagged with an amber ⚠
+overlay plus an advisory line. Everything below §2.1 is still pending.
+
 **Key decision carried into this plan:** buckling is addressed as a **warning
 only**, not as a change to the physics. The solver keeps its ideal
 pin-jointed, length-independent model; the tool gains a clearly-advisory
@@ -389,10 +397,13 @@ this branch.
 
 ## 7. Decisions to confirm before implementation
 
-- **D1 — Buckling threshold.** Default `BUCKLE_WARN_LEN = 2.0 in` plus
-  always-flag-the-longest-compression-member. Confirm the number, or prefer a
-  purely relative rule (e.g. flag the longest N compression members) with no
-  absolute threshold.
+- **D1 — Buckling threshold (implemented as the relative rule).** Shipped with
+  a scale-free rule: `bucklingRiskMembers` flags every compression member whose
+  length is within `BUCKLE_WARN_RATIO` (default **0.9**) of the longest
+  compression member, and marks that longest one as the primary risk (⚠). This
+  avoids a hard-coded inch threshold that wouldn't travel across truss scales,
+  and always surfaces the long top chord the report worried about. Confirm 0.9,
+  or switch to an absolute inch threshold if you'd rather tune by length.
 - **D2 — Joint numbering scheme.** `Pin/Roller` + `J1, J2 …` in
   left-to-right/bottom-to-top order (stable across reloads) vs. creation order.
   And whether to add geometry-based role hints (top chord / diagonal / …).

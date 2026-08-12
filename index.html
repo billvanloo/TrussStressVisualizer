@@ -11,7 +11,7 @@
     --ink:#23272C; --ink-soft:#5A6068; --line:#C9C6BA;
     --dykem:#1D5FA8; --dykem-soft:#E3ECF7;
     --tension:#1D5FA8; --compression:#B3402F;
-    --brass:#B08A2E;
+    --brass:#B08A2E; --buckle:#A15A16;
     --pass:#2E7D46; --fail:#B3402F;
     --dro-bg:#1D2126; --dro-amber:#FFB000; --dro-dim:#7A6428;
     --font-ui:"Avenir Next","Segoe UI","Trebuchet MS",system-ui,sans-serif;
@@ -275,6 +275,7 @@
       <li>A solvable truss follows <strong>2 × joints = members + 3</strong>. Too few members → mechanism (collapses). Too many → indeterminate (can't be solved by the method of joints).</li>
       <li>The Inspect tool shows the free-body diagram at any joint — the same picture you draw for method-of-joints calculations. The vector sum is zero: that's equilibrium.</li>
       <li>Forces here are ideal 2D truss values: members only carry axial load, joints are pins. Your real bridge has glue joints, member bending, and imperfections — expect real failure loads to differ. The <em>pattern</em> of which members work hardest is the insight.</li>
+      <li><strong>Buckling:</strong> this tool does not model buckling, so the predicted failure load is <em>optimistic</em>. Long members in compression (red) bow and fail well before they reach the force limit shown. The long red members flagged with a <strong>⚠</strong> are the ones most likely to buckle first in your real bridge — shorten them, brace them, or add a joint partway along.</li>
     </ul>
     <p><strong>Moving load:</strong> steps a point load across the deck joints so you can watch member forces shift as a load crosses — some members even flip between tension and compression.</p>
   </div>
@@ -386,6 +387,74 @@ function tFmt(n){
   return String(r);
 }
 
+// ---- Buckling advisory (pure) — display flag only, no physics change ----
+// Flags the long compression members most likely to bow so the UI can warn.
+// Scale-free: among compression members, flag those within BUCKLE_WARN_RATIO of
+// the longest; that longest one is the primary risk ("worst"). Does NOT alter
+// solved forces, maxC, or the predicted failure load.
+const BUCKLE_WARN_RATIO = 0.9;
+function bucklingRiskMembers(nodes, members, forces, opts){
+  const ratio=(opts&&opts.ratio!=null)?opts.ratio:BUCKLE_WARN_RATIO;
+  const nodeById={}; nodes.forEach(n=>nodeById[n.id]=n);
+  const comp=[];
+  for (const mb of members){
+    const f=forces?forces[mb.id]:undefined;
+    if (f==null||f>=-1e-9) continue; // compression only (tension positive)
+    const a=nodeById[mb.a], b=nodeById[mb.b];
+    if (!a||!b) continue;
+    comp.push({id:mb.id, L:tDist(a,b)});
+  }
+  if (!comp.length) return {risky:new Set(), worst:null, worstLen:0, count:0, anyCompression:false};
+  let worst=comp[0];
+  for (const c of comp) if (c.L>worst.L) worst=c;
+  const cut=worst.L*ratio;
+  const risky=new Set();
+  for (const c of comp) if (c.L>=cut-1e-9) risky.add(c.id);
+  return {risky, worst:worst.id, worstLen:worst.L, count:risky.size, anyCompression:true};
+}
+
+// ---- Readable labels (pure) — display only, internal ids unchanged ----
+function labelJoints(nodes){
+  const sorted=nodes.slice().sort((a,b)=>(a.x-b.x)||(a.y-b.y));
+  const labels={};
+  sorted.forEach((n,i)=>labels[n.id]='J'+(i+1));
+  return labels;
+}
+function memberLabel(mb, labels){
+  return (labels[mb.a]||'?')+'–'+(labels[mb.b]||'?');
+}
+
+// ---- Persistence (pure) ----
+function serializeDesign(S){
+  return {
+    version:2,
+    name:S.name||'',
+    nodes:S.nodes.map(n=>{ const o={id:n.id,x:n.x,y:n.y}; if(n.support)o.support=n.support; return o; }),
+    members:S.members.map(m=>{ const o={id:m.id,a:m.a,b:m.b}; if(m.limit!=null)o.limit=m.limit; return o; }),
+    limit:S.limit, budget:S.budget,
+    loadMode:S.loadMode, applied:S.applied,
+    movingLoad:S.movingLoad, movingIdx:S.movingIdx||0,
+    twoTruss:S.twoTruss
+  };
+}
+function applyDesign(doc){
+  if (!doc||!Array.isArray(doc.nodes)||!Array.isArray(doc.members)) return null;
+  if (!doc.nodes.some(n=>n.support==='pin')||!doc.nodes.some(n=>n.support==='roller')) return null;
+  const out={nodes:doc.nodes, members:doc.members};
+  if (doc.name!=null) out.name=String(doc.name);
+  if (doc.limit!=null) out.limit=doc.limit;
+  if (doc.budget!=null) out.budget=doc.budget;
+  if (doc.loadMode==='vsmt'||doc.loadMode==='moving') out.loadMode=doc.loadMode;
+  if (doc.applied!=null) out.applied=doc.applied;
+  if (doc.movingLoad!=null) out.movingLoad=doc.movingLoad;
+  if (doc.movingIdx!=null) out.movingIdx=doc.movingIdx;
+  if (doc.twoTruss!=null) out.twoTruss=!!doc.twoTruss;
+  let maxN=0;
+  [...doc.nodes,...doc.members].forEach(o=>{const mm=/\d+$/.exec(o.id); if(mm) maxN=Math.max(maxN,Number(mm[0]));});
+  out.idc=maxN;
+  return out;
+}
+
 /* =====================================================================
    PROJECT CONSTANTS — matches the class bridge project & Vernier tester
    ===================================================================== */
@@ -408,6 +477,7 @@ const S = {
   twoTruss:true,
   movingLoad:100, movingIdx:0,
   limit:90, budget:60,
+  name:'',
   drag:null,
   idc:0
 };
@@ -421,7 +491,7 @@ function deckJoints(){
 /* =====================================================================
    LOAD CASES + SOLVE
    ===================================================================== */
-let solved=null, unitSolved=null, fail=null, loadInfo=null;
+let solved=null, unitSolved=null, fail=null, loadInfo=null, jointLabels={}, bucklingInfo=null;
 function currentLoads(){
   // Returns {loads:[...], perTruss, describe, warn}
   if (S.loadMode==='vsmt'){
@@ -442,14 +512,16 @@ function currentLoads(){
 }
 function resolve(){
   loadInfo=currentLoads();
+  jointLabels=labelJoints(S.nodes);
   const st={nodes:S.nodes, members:S.members, pinNode:'S1', rollerNode:'S2', loads:loadInfo.loads};
   solved=solveTruss(st);
   // Unit-load solve for failure prediction (same load pattern, magnitude 1 N per truss)
   if (solved.status==='ok' && loadInfo.loads.length){
     const unitLoads=loadInfo.loads.map(l=>({node:l.node, fx:0, fy:-1}));
     unitSolved=solveTruss({nodes:S.nodes, members:S.members, pinNode:'S1', rollerNode:'S2', loads:unitLoads});
-    fail=failureLoad(unitSolved, S.members, ()=>S.limit);
-  } else { unitSolved=null; fail=null; }
+    fail=failureLoad(unitSolved, S.members, mb=>(mb.limit!=null?mb.limit:S.limit));
+    bucklingInfo=bucklingRiskMembers(S.nodes, S.members, solved.forces);
+  } else { unitSolved=null; fail=null; bucklingInfo=null; }
   updateDRO();
   drawFBD();
   draw();
@@ -480,7 +552,13 @@ function updateDRO(){
   if (!text && fail && isFinite(fail.load)){
     const testerLoad=S.loadMode==='vsmt'?fail.load*(S.twoTruss?2:1):fail.load;
     const mb=S.members.find(x=>x.id===fail.memberId);
-    if (mb) text='First failure: member '+memberName(mb)+' at ~'+tFmt(testerLoad)+' N '+(S.loadMode==='vsmt'?'tester load':'')+(testerLoad>TESTER_CAP?' — exceeds the tester\u2019s '+TESTER_CAP+' N load cell.':'.');
+    if (mb) text='First failure: member '+memberLabelStr(mb)+' at ~'+tFmt(testerLoad)+' N '+(S.loadMode==='vsmt'?'tester load':'')+(testerLoad>TESTER_CAP?' — exceeds the tester\u2019s '+TESTER_CAP+' N load cell.':'.');
+  }
+  // Buckling advisory — the model ignores buckling; long compression members fail sooner.
+  if (solved.status==='ok' && bucklingInfo && bucklingInfo.anyCompression){
+    const worstMb=S.members.find(x=>x.id===bucklingInfo.worst);
+    text += (text?'  ':'')+'⚠ This estimate ignores buckling — long compression members (marked ⚠) fail sooner than shown'
+      + (worstMb?'; watch '+memberLabelStr(worstMb)+' (longest compression member).':'.');
   }
   msg.textContent=text;
   msg.classList.toggle('err', solved.status!=='ok'&&solved.status!=='empty');
@@ -489,6 +567,7 @@ function memberName(mb){
   const a=nodeById(mb.a), b=nodeById(mb.b);
   return '('+a.x.toFixed(1)+','+a.y.toFixed(1)+')–('+b.x.toFixed(1)+','+b.y.toFixed(1)+')';
 }
+function memberLabelStr(mb){ return memberLabel(mb, jointLabels); }
 
 /* =====================================================================
    CANVAS + RENDER
@@ -574,6 +653,22 @@ function draw(){
       ctx.setLineDash([4,4]); ctx.strokeStyle='#B3402F'; ctx.lineWidth=1.5;
       ctx.beginPath(); ctx.moveTo(wx(a.x),wy(a.y)); ctx.lineTo(wx(b.x),wy(b.y)); ctx.stroke();
       ctx.setLineDash([]);
+    }
+    // buckling advisory overlay — amber dashed on long compression members, ⚠ on the worst
+    if (solved && solved.status==='ok' && bucklingInfo && bucklingInfo.risky.has(mb.id)){
+      const isWorst=bucklingInfo.worst===mb.id;
+      ctx.save();
+      ctx.strokeStyle='#A15A16'; ctx.lineWidth=isWorst?2.5:1.5; ctx.setLineDash([2,4]); ctx.lineCap='butt';
+      ctx.beginPath(); ctx.moveTo(wx(a.x),wy(a.y)); ctx.lineTo(wx(b.x),wy(b.y)); ctx.stroke();
+      ctx.setLineDash([]);
+      if (isWorst){
+        const mxp=(wx(a.x)+wx(b.x))/2, myp=(wy(a.y)+wy(b.y))/2;
+        let nx=-(wy(b.y)-wy(a.y)), ny=(wx(b.x)-wx(a.x)); const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
+        ctx.font='700 14px "Segoe UI",system-ui,sans-serif';
+        ctx.fillStyle='#A15A16'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText('⚠', mxp+nx*15, myp+ny*15);
+      }
+      ctx.restore();
     }
   }
   // member-in-progress
@@ -662,7 +757,7 @@ function drawFBD(){
   fctx.fillStyle='#23272C';
   fctx.beginPath(); fctx.arc(cx,cy,5,0,Math.PI*2); fctx.fill();
   let sx=0, sy=0;
-  let html='<div style="font:700 10px var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:#5A6068;margin-bottom:4px">Joint ('+n.x.toFixed(1)+', '+n.y.toFixed(1)+')</div>';
+  let html='<div style="font:700 10px var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:#5A6068;margin-bottom:4px">Joint '+(jointLabels[n.id]||'')+' ('+n.x.toFixed(1)+', '+n.y.toFixed(1)+')</div>';
   for (const v of vectors){
     sx+=v.fx; sy+=v.fy;
     const mag=Math.hypot(v.fx,v.fy);
@@ -872,15 +967,17 @@ document.getElementById('btnReport').addEventListener('click',()=>{
   const img=snapshotDataURL();
   let jointRows='';
   S.nodes.forEach(n=>{
-    jointRows+='<tr><td>('+n.x.toFixed(2)+', '+n.y.toFixed(2)+') in</td><td>'+(n.support?(n.support==='pin'?'Pin support':'Roller support'):'—')+'</td></tr>';
+    jointRows+='<tr><td>'+(jointLabels[n.id]||'')+'</td><td>('+n.x.toFixed(2)+', '+n.y.toFixed(2)+') in</td><td>'+(n.support?(n.support==='pin'?'Pin support':'Roller support'):'—')+'</td></tr>';
   });
   let memberRows='';
   S.members.forEach(mb=>{
     const a=nodeById(mb.a), b=nodeById(mb.b);
     const L=tDist(a,b);
+    const lim=(mb.limit!=null?mb.limit:S.limit);
     const f=(solved&&solved.status==='ok')?(solved.forces[mb.id]||0):null;
-    const util=f!=null?Math.round(Math.abs(f)/S.limit*100):null;
-    memberRows+='<tr><td>'+memberName(mb)+'</td><td>'+L.toFixed(2)+' in</td>'+
+    const util=f!=null?Math.round(Math.abs(f)/lim*100):null;
+    const buckle=(bucklingInfo&&bucklingInfo.risky.has(mb.id))?(bucklingInfo.worst===mb.id?' ⚠ buckling (longest)':' ⚠ buckling'):'';
+    memberRows+='<tr><td>'+memberLabelStr(mb)+buckle+'</td><td>'+memberName(mb)+'</td><td>'+L.toFixed(2)+' in</td>'+
       '<td>'+(f==null?'—':tFmt(Math.abs(f))+' N '+(f>1e-9?'tension':(f<-1e-9?'compression':'zero')))+'</td>'+
       '<td>'+(util==null?'—':util+'%'+(util>100?' — OVER':''))+'</td></tr>';
   });
@@ -888,11 +985,13 @@ document.getElementById('btnReport').addEventListener('click',()=>{
   if (fail&&isFinite(fail.load)){
     const testerLoad=S.loadMode==='vsmt'?fail.load*(S.twoTruss?2:1):fail.load;
     const mb=S.members.find(x=>x.id===fail.memberId);
-    failBlock='<h2>Failure prediction</h2><p style="font-size:12px">First member predicted to fail: '+(mb?memberName(mb):'—')+
+    const worstMb=bucklingInfo&&bucklingInfo.worst?S.members.find(x=>x.id===bucklingInfo.worst):null;
+    failBlock='<h2>Failure prediction</h2><p style="font-size:12px">First member predicted to fail: '+(mb?memberLabelStr(mb):'—')+
       ' at approximately <strong>'+tFmt(testerLoad)+' N</strong> applied '+(S.loadMode==='vsmt'?'tester':'')+' load'+
       (S.twoTruss&&S.loadMode==='vsmt'?' (each of two truss planes carrying half)':'')+ 
       (testerLoad>TESTER_CAP?'. Note: exceeds the tester\u2019s '+TESTER_CAP+' N load cell.':'.')+
-      ' Ideal pin-jointed model — actual results will vary with joints, glue, and member buckling.</p>';
+      ' Ideal pin-jointed model — actual results will vary with joints, glue, and member buckling.'+
+      (worstMb?' <strong>This estimate ignores buckling:</strong> long compression members fail sooner than shown — watch '+memberLabelStr(worstMb)+' (longest compression member).':'')+'</p>';
   }
   const rx=solved&&solved.reactions;
   document.getElementById('report').innerHTML =
@@ -901,43 +1000,54 @@ document.getElementById('btnReport').addEventListener('click',()=>{
     '<table><tr><th>Name</th><th>Date</th><th>Load case</th><th>Material limit</th><th>Length / budget</th></tr>'+
     '<tr><td>'+t.name+'</td><td>'+t.date+'</td><td>'+t.mode+'</td><td>'+S.limit+' N per member</td><td>'+(Math.round(solved.totalLength*10)/10)+' / '+S.budget+' in</td></tr></table>'+
     '<img src="'+img+'">'+
-    '<h2>Joints</h2><table><tr><th>Position</th><th>Support</th></tr>'+jointRows+'</table>'+
-    '<h2>Members</h2><table><tr><th>Member</th><th>Length</th><th>Force</th><th>Utilization</th></tr>'+memberRows+'</table>'+
+    '<h2>Joints</h2><table><tr><th>Joint</th><th>Position</th><th>Support</th></tr>'+jointRows+'</table>'+
+    '<h2>Members</h2><table><tr><th>Member</th><th>Ends</th><th>Length</th><th>Force</th><th>Utilization</th></tr>'+memberRows+'</table>'+
     (rx?('<h2>Reactions</h2><table><tr><th>Pin (left)</th><th>Roller (right)</th></tr><tr><td>Rx '+tFmt(rx.pin.x)+' N · Ry '+tFmt(rx.pin.y)+' N</td><td>Ry '+tFmt(rx.roller.y)+' N</td></tr></table>'):'')+
     failBlock+
     '<div class="sig"><span>Student signature</span><span>Teacher check</span></div></div>';
   window.print();
 });
 document.getElementById('btnSave').addEventListener('click',()=>{
-  const data={version:1, nodes:S.nodes, members:S.members, limit:S.limit, budget:S.budget,
-    loadMode:S.loadMode, applied:S.applied, movingLoad:S.movingLoad, twoTruss:S.twoTruss};
+  const data=serializeDesign(S);
   const a=document.createElement('a');
   a.download='truss-design.json';
   a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data,null,2));
   a.click();
 });
+// Push every restorable field from S back into the palette controls.
+function syncControlsFromState(){
+  const presets=[45,150,200,90];
+  document.getElementById('limitInput').value=S.limit;
+  document.getElementById('materialSel').value=presets.includes(Number(S.limit))?String(S.limit):'custom';
+  document.getElementById('budgetInput').value=S.budget;
+  document.getElementById('twoTrussChk').checked=S.twoTruss;
+  document.getElementById('appliedLoad').value=S.applied;
+  document.getElementById('movingLoad').value=S.movingLoad;
+  document.getElementById('studentName').value=S.name||'';
+  document.getElementById('lmVsmt').classList.toggle('on', S.loadMode==='vsmt');
+  document.getElementById('lmMoving').classList.toggle('on', S.loadMode==='moving');
+  document.getElementById('vsmtCtl').style.display=S.loadMode==='vsmt'?'block':'none';
+  document.getElementById('movingCtl').style.display=S.loadMode==='moving'?'block':'none';
+}
 document.getElementById('btnLoad').addEventListener('click',()=>document.getElementById('fileInput').click());
 document.getElementById('fileInput').addEventListener('change',ev=>{
   const f=ev.target.files[0]; if(!f) return;
   const rd=new FileReader();
   rd.onload=()=>{
     try{
-      const d=JSON.parse(rd.result);
-      if (!Array.isArray(d.nodes)||!Array.isArray(d.members)) throw new Error('bad');
-      if (!d.nodes.some(n=>n.support==='pin')||!d.nodes.some(n=>n.support==='roller')) throw new Error('bad');
-      S.nodes=d.nodes; S.members=d.members;
-      if (d.limit){ S.limit=d.limit; document.getElementById('limitInput').value=d.limit; document.getElementById('materialSel').value='custom'; }
-      if (d.budget){ S.budget=d.budget; document.getElementById('budgetInput').value=d.budget; }
-      if (d.twoTruss!=null){ S.twoTruss=d.twoTruss; document.getElementById('twoTrussChk').checked=d.twoTruss; }
-      let maxN=0; [...S.nodes,...S.members].forEach(o=>{const mm=/\d+$/.exec(o.id); if(mm) maxN=Math.max(maxN,Number(mm[0]));});
-      S.idc=maxN;
+      const parsed=applyDesign(JSON.parse(rd.result));
+      if (!parsed) throw new Error('bad');
+      Object.assign(S, parsed);
       S.inspected=null; S.memberFirst=null;
+      syncControlsFromState();
       resolve(); toast('Design loaded.');
     }catch(e){ toast('Could not read that file.'); }
   };
   rd.readAsText(f);
   ev.target.value='';
 });
+// Keep the student name in state so it round-trips through save/load.
+document.getElementById('studentName').addEventListener('input',e=>{ S.name=e.target.value; });
 document.getElementById('btnHelp').addEventListener('click',()=>document.getElementById('modalBack').classList.add('open'));
 document.getElementById('modalClose').addEventListener('click',()=>document.getElementById('modalBack').classList.remove('open'));
 document.getElementById('modalBack').addEventListener('click',ev=>{ if(ev.target.id==='modalBack') ev.target.classList.remove('open'); });
