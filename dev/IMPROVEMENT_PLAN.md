@@ -25,9 +25,18 @@ Ctrl/Cmd+Shift+Z); every geometry mutation, clear-all, load, and parameter
 change records one step (typing bursts and drags coalesce to a single step).
 Autosave writes a debounced snapshot to `localStorage` on every change and
 restores it on boot behind a non-modal "Start fresh / Keep it" notice; a failed
-or blocked `localStorage` degrades silently. Still pending: per-member materials
-(§3.1, calc already respects `mb.limit`, needs assignment UI), keyboard +
-screen reader (§2.3), and phone layout.
+or blocked `localStorage` degrades silently.
+
+**Keyboard + screen reader (§2.3) is also done.** The board is focusable
+(`role="application"`) with an on-canvas cursor: arrow keys move it on the
+half-inch grid, Enter acts with the current tool (add / connect / inspect /
+pick-up-and-move / remove), Delete removes, Escape cancels, and 1–5 switch
+tools. Pointer and keyboard now share the same action helpers. A visually
+hidden `aria-live` region announces every action and cursor move, a hidden
+board summary (joints, members, status, max forces, predicted failure,
+buckling caveat) updates each solve, and both canvases carry live
+`aria-label`s. Still pending: per-member materials (§3.1, calc already respects
+`mb.limit`, needs assignment UI) and a phone layout.
 
 **Key decision carried into this plan:** buckling is addressed as a **warning
 only**, not as a change to the physics. The solver keeps its ideal

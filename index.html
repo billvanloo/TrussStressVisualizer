@@ -116,6 +116,7 @@
 
   /* ---------- Accessibility ---------- */
   :focus-visible{outline:2px solid var(--dykem);outline-offset:2px}
+  .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:normal;border:0}
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{
       animation-duration:.001ms !important;
@@ -228,8 +229,11 @@
 
   <div id="stage">
     <div id="canvasWrap">
-      <canvas id="board"></canvas>
-      <div id="hint">Span: 6.00 in between supports (pin ▲ left, roller ○ right). Tap the sheet to add joints on the ½-inch grid; use the Member tool to connect them.</div>
+      <canvas id="board" tabindex="0" role="application" aria-label="Truss drawing grid. Active tool: add joint. Use arrow keys to move the cursor and Enter to act." aria-describedby="boardHelp boardSummary"></canvas>
+      <p id="boardHelp" class="sr-only">Interactive truss grid. Arrow keys move a cursor across the half-inch grid. Enter acts at the cursor with the active tool: add joint, add member, move joint, inspect joint, or remove. Delete removes the joint or member at the cursor. Escape cancels the current action. Number keys 1 to 5 switch tools.</p>
+      <p id="boardSummary" class="sr-only" aria-live="off"></p>
+      <p id="srLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+      <div id="hint">Span: 6.00 in between supports (pin ▲ left, roller ○ right). Tap the sheet to add joints on the ½-inch grid; use the Member tool to connect them. Keyboard: Tab here, then arrow keys + Enter.</div>
       <div id="toast" role="status" aria-live="polite"></div>
       <div id="restoreNotice" role="status" aria-live="polite">
         <span>Restored your last design.</span>
@@ -248,8 +252,8 @@
   </div>
 
   <div id="fbdPanel">
-    <h3>Free-body diagram</h3>
-    <canvas id="fbdCanvas" width="270" height="270"></canvas>
+    <h3 id="fbdHeading">Free-body diagram</h3>
+    <canvas id="fbdCanvas" width="270" height="270" role="img" aria-label="Free-body diagram. Select a joint with the Inspect tool to see the forces balancing there."></canvas>
     <div id="fbdEmpty">Choose the Inspect tool and tap any joint to see the forces balancing there.</div>
     <div id="fbdInfo"></div>
   </div>
@@ -291,6 +295,7 @@
       <li><strong>Buckling:</strong> this tool does not model buckling, so the predicted failure load is <em>optimistic</em>. Long members in compression (red) bow and fail well before they reach the force limit shown. The long red members flagged with a <strong>⚠</strong> are the ones most likely to buckle first in your real bridge — shorten them, brace them, or add a joint partway along.</li>
     </ul>
     <p><strong>Moving load:</strong> steps a point load across the deck joints so you can watch member forces shift as a load crosses — some members even flip between tension and compression.</p>
+    <p><strong>Keyboard &amp; screen reader:</strong> press Tab to reach the drawing grid, then use the arrow keys to move the cursor across the ½-inch grid and Enter to act with the current tool — add a joint, connect a member, inspect, pick up and move a joint, or remove. Delete removes the joint or member at the cursor, Escape cancels, and number keys 1–5 switch tools. A spoken summary of the truss, its status, and the predicted failure updates as you work.</p>
   </div>
 </div>
 
@@ -492,6 +497,9 @@ const S = {
   limit:90, budget:60,
   name:'',
   drag:null,
+  cursor:{x:SPAN/2, y:0},   // keyboard cursor (grid coords)
+  kbFocus:false,            // board has keyboard focus -> show cursor
+  kbMove:null,              // id of a joint picked up for keyboard move
   idc:0
 };
 function uid(p){ return p + (++S.idc); }
@@ -539,6 +547,8 @@ function resolve(){
   drawFBD();
   draw();
   scheduleAutosave();
+  const bs=document.getElementById('boardSummary');
+  if (bs) bs.textContent=describeState();
 }
 function updateDRO(){
   const st=document.getElementById('droStatus');
@@ -734,6 +744,16 @@ function draw(){
     ctx.fill();
     ctx.lineWidth=2; ctx.strokeStyle='#23272C'; ctx.stroke();
   }
+  // keyboard cursor — only while the board has keyboard focus
+  if (S.kbFocus){
+    const cx=wx(S.cursor.x), cy=wy(S.cursor.y);
+    ctx.save();
+    ctx.strokeStyle=S.kbMove?'#B3402F':'#1D5FA8';
+    ctx.lineWidth=2; ctx.setLineDash([3,3]);
+    ctx.strokeRect(cx-10, cy-10, 20, 20);
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
 }
 
 /* =====================================================================
@@ -748,10 +768,12 @@ function drawFBD(){
   if (!S.inspected || !nodeById(S.inspected) || !solved || solved.status!=='ok'){
     info.innerHTML=''; empty.style.display='block';
     if (S.inspected && solved && solved.status!=='ok') empty.textContent='Solve the truss first — fix the status error, then inspect joints.';
+    fbd.setAttribute('aria-label','Free-body diagram. Select a joint with the Inspect tool to see the forces balancing there.');
     return;
   }
   empty.style.display='none';
   const n=nodeById(S.inspected);
+  fbd.setAttribute('aria-label','Free-body diagram for joint '+(jointLabels[n.id]||'')+'. The force vectors at this joint sum to zero — equilibrium. Details follow below.');
   const cx=fbd.width/2, cy=fbd.height/2, R=95;
   // gather forces at this joint: member axials + reactions + loads
   const vectors=[]; // {fx,fy,label,color}
@@ -819,58 +841,108 @@ function hitNode(w){
   }
   return best?best.n:null;
 }
+/* ---------- shared tool actions + screen-reader helpers ---------- */
+function announce(msg){ const el=document.getElementById('srLive'); if(el){ el.textContent=''; el.textContent=msg; } }
+function describeState(){
+  if (!solved) return '';
+  const j=S.nodes.length, m=S.members.length;
+  let s=j+' joint'+(j===1?'':'s')+', '+m+' member'+(m===1?'':'s')+'. ';
+  const map={ok:'Solved.', mechanism:'Mechanism — unstable, needs more members.', indeterminate:'Indeterminate — too many members.', unstable:'Unstable geometry.', empty:'Add joints and members.'};
+  s+=(map[solved.status]||'')+' ';
+  if (solved.status==='ok'){
+    s+='Max tension '+tFmt(solved.maxT)+' newtons, max compression '+tFmt(Math.abs(solved.maxC))+' newtons. ';
+    if (fail && isFinite(fail.load)){
+      const testerLoad=S.loadMode==='vsmt'?fail.load*(S.twoTruss?2:1):fail.load;
+      const mb=S.members.find(x=>x.id===fail.memberId);
+      s+='Predicted failure '+tFmt(testerLoad)+' newtons'+(mb?' at member '+memberLabelStr(mb):'')+'. ';
+    }
+    if (bucklingInfo && bucklingInfo.anyCompression){
+      const w=S.members.find(x=>x.id===bucklingInfo.worst);
+      s+='Buckling not modelled; watch '+(w?'member '+memberLabelStr(w):'the longest compression member')+'. ';
+    }
+  }
+  return s.trim();
+}
+function nodeAtCell(x,y){ return S.nodes.find(n=>Math.abs(n.x-x)<1e-6&&Math.abs(n.y-y)<1e-6)||null; }
+function jlabel(node){ return jointLabels[node.id]||''; }
+function inBounds(x,y){ return !(x<WORLD.x0||x>WORLD.x1||y<WORLD.y0+0.5||y>WORLD.y1-0.25); }
+function addJoint(x,y){
+  const sx=snap(x), sy=snap(y);
+  if (!inBounds(sx,sy)) return false;
+  if (nodeAtCell(sx,sy)){ toast('A joint is already there.'); announce('A joint is already here.'); return false; }
+  pushHistory();
+  S.nodes.push({id:uid('n'), x:sx, y:sy});
+  resolve();
+  announce('Joint added at '+sx.toFixed(1)+', '+sy.toFixed(1)+'. '+describeState());
+  return true;
+}
+function connectMember(hit){
+  if (!hit){ toast('Tap a joint. Members connect joint to joint.'); announce('No joint here. Members connect joint to joint.'); return; }
+  if (!S.memberFirst){ S.memberFirst=hit.id; announce('First joint '+jlabel(hit)+' selected. Choose a second joint.'); draw(); return; }
+  if (S.memberFirst===hit.id){ S.memberFirst=null; announce('Selection cleared.'); draw(); return; }
+  const dup=S.members.some(mb=>(mb.a===S.memberFirst&&mb.b===hit.id)||(mb.b===S.memberFirst&&mb.a===hit.id));
+  if (dup){ toast('Those joints are already connected.'); announce('Those joints are already connected.'); S.memberFirst=null; draw(); return; }
+  pushHistory();
+  const nm={id:uid('m'), a:S.memberFirst, b:hit.id};
+  S.members.push(nm); S.memberFirst=null;
+  resolve();
+  announce('Member '+memberLabelStr(nm)+' added. '+describeState());
+}
+function inspectNode(hit){
+  S.inspected=hit.id; resolve();
+  const lbl=jlabel(hit);
+  if (solved && solved.status==='ok'){
+    const mem=S.members.filter(m=>m.a===hit.id||m.b===hit.id).length;
+    announce('Inspecting joint '+lbl+'. '+mem+' member'+(mem===1?'':'s')+' meet here; the forces balance to zero. Details are in the free-body diagram panel.');
+  } else {
+    announce('Inspecting joint '+lbl+'. Solve the truss first to see the balanced forces.');
+  }
+}
+function deleteAt(w, hit){
+  if (hit){
+    if (hit.support){ toast('Supports can’t be removed.'); announce('Supports cannot be removed.'); return; }
+    const lbl=jlabel(hit);
+    pushHistory();
+    S.members=S.members.filter(mb=>mb.a!==hit.id&&mb.b!==hit.id);
+    S.nodes=S.nodes.filter(n=>n.id!==hit.id);
+    if (S.inspected===hit.id) S.inspected=null;
+    resolve();
+    announce('Joint '+lbl+' removed. '+describeState());
+    return;
+  }
+  let bestM=null;
+  for (const mb of S.members){
+    const a=nodeById(mb.a), b=nodeById(mb.b);
+    const d=segDist(w,a,b)*PX;
+    if (d<10 && (!bestM||d<bestM.d)) bestM={mb,d};
+  }
+  if (bestM){
+    const lbl=memberLabelStr(bestM.mb);
+    pushHistory();
+    S.members=S.members.filter(x=>x.id!==bestM.mb.id);
+    resolve();
+    announce('Member '+lbl+' removed. '+describeState());
+  } else {
+    announce('Nothing to remove here.');
+  }
+}
 canvas.addEventListener('pointerdown', ev=>{
   ev.preventDefault();
   canvas.setPointerCapture(ev.pointerId);
   const w=toWorld({x:ev.clientX-canvas.getBoundingClientRect().left, y:ev.clientY-canvas.getBoundingClientRect().top});
   const hit=hitNode(w);
   if (S.tool==='joint'){
-    if (hit) { toast('A joint is already there.'); return; }
-    const x=snap(w.x), y=snap(w.y);
-    if (x<WORLD.x0||x>WORLD.x1||y<WORLD.y0+0.5||y>WORLD.y1-0.25) return;
-    pushHistory();
-    S.nodes.push({id:uid('n'), x, y});
-    resolve(); return;
+    if (hit){ toast('A joint is already there.'); return; }
+    addJoint(w.x, w.y); return;
   }
-  if (S.tool==='member'){
-    if (!hit){ toast('Tap a joint. Members connect joint to joint.'); return; }
-    if (!S.memberFirst){ S.memberFirst=hit.id; draw(); return; }
-    if (S.memberFirst===hit.id){ S.memberFirst=null; draw(); return; }
-    const dup=S.members.some(mb=>(mb.a===S.memberFirst&&mb.b===hit.id)||(mb.b===S.memberFirst&&mb.a===hit.id));
-    if (dup){ toast('Those joints are already connected.'); S.memberFirst=null; draw(); return; }
-    pushHistory();
-    S.members.push({id:uid('m'), a:S.memberFirst, b:hit.id});
-    S.memberFirst=null;
-    resolve(); return;
-  }
+  if (S.tool==='member'){ connectMember(hit); return; }
   if (S.tool==='move'){
     if (hit && !hit.support){ S.drag=hit.id; S.dragStarted=false; }
     else if (hit && hit.support){ toast('Supports are fixed — they match the tester frame.'); }
     return;
   }
-  if (S.tool==='inspect'){
-    if (hit){ S.inspected=hit.id; resolve(); }
-    return;
-  }
-  if (S.tool==='delete'){
-    if (hit){
-      if (hit.support){ toast('Supports can\u2019t be removed.'); return; }
-      pushHistory();
-      S.members=S.members.filter(mb=>mb.a!==hit.id&&mb.b!==hit.id);
-      S.nodes=S.nodes.filter(n=>n.id!==hit.id);
-      if (S.inspected===hit.id) S.inspected=null;
-      resolve(); return;
-    }
-    // hit test members (distance point-to-segment)
-    let bestM=null;
-    for (const mb of S.members){
-      const a=nodeById(mb.a), b=nodeById(mb.b);
-      const d=segDist(w,a,b)*PX;
-      if (d<10 && (!bestM||d<bestM.d)) bestM={mb,d};
-    }
-    if (bestM){ pushHistory(); S.members=S.members.filter(x=>x.id!==bestM.mb.id); resolve(); }
-    return;
-  }
+  if (S.tool==='inspect'){ if (hit) inspectNode(hit); return; }
+  if (S.tool==='delete'){ deleteAt(w, hit); return; }
 });
 canvas.addEventListener('pointermove', ev=>{
   if (S.tool!=='move'||!S.drag) return;
@@ -884,6 +956,71 @@ canvas.addEventListener('pointermove', ev=>{
   resolve();
 });
 canvas.addEventListener('pointerup', ()=>{ S.drag=null; });
+
+/* ---------- keyboard operation of the board ---------- */
+canvas.addEventListener('focus', ()=>{ S.kbFocus=true; announce('Truss grid focused. '+describeState()+' Cursor at '+S.cursor.x.toFixed(1)+', '+S.cursor.y.toFixed(1)+'.'); draw(); });
+canvas.addEventListener('blur', ()=>{ S.kbFocus=false; S.kbMove=null; draw(); });
+function moveCursor(dx,dy){
+  S.cursor.x=Math.max(WORLD.x0,Math.min(WORLD.x1, snap(S.cursor.x+dx)));
+  S.cursor.y=Math.max(WORLD.y0+0.5,Math.min(WORLD.y1-0.25, snap(S.cursor.y+dy)));
+  draw();
+  announceCursor();
+}
+function announceCursor(){
+  const hit=nodeAtCell(S.cursor.x,S.cursor.y);
+  let msg=S.cursor.x.toFixed(1)+', '+S.cursor.y.toFixed(1)+'. ';
+  if (hit){
+    const mem=S.members.filter(m=>m.a===hit.id||m.b===hit.id).length;
+    msg+='Joint '+jlabel(hit)+(hit.support?' ('+hit.support+' support)':'')+', '+mem+' member'+(mem===1?'':'s')+'.';
+  } else msg+='Empty cell.';
+  announce(msg);
+}
+function moveHeldJoint(dx,dy){
+  const n=nodeById(S.kbMove); if(!n){ S.kbMove=null; return; }
+  if (!S.kbMoveStarted){ pushHistory(); S.kbMoveStarted=true; }
+  n.x=Math.max(WORLD.x0,Math.min(WORLD.x1, snap(n.x+dx)));
+  n.y=Math.max(WORLD.y0+0.5,Math.min(WORLD.y1-0.25, snap(n.y+dy)));
+  S.cursor.x=n.x; S.cursor.y=n.y;
+  resolve();
+  announce('Moved to '+n.x.toFixed(1)+', '+n.y.toFixed(1)+'.');
+}
+function keyActivate(){
+  const hit=nodeAtCell(S.cursor.x,S.cursor.y);
+  if (S.kbMove){
+    const n=nodeById(S.kbMove); S.kbMove=null;
+    announce('Joint dropped at '+(n?n.x.toFixed(1)+', '+n.y.toFixed(1):'')+'. '+describeState());
+    draw(); return;
+  }
+  if (S.tool==='joint'){
+    if (hit){ toast('A joint is already there.'); announce('A joint is already here.'); return; }
+    addJoint(S.cursor.x, S.cursor.y);
+  } else if (S.tool==='member'){ connectMember(hit); }
+  else if (S.tool==='move'){
+    if (hit && !hit.support){ S.kbMove=hit.id; S.kbMoveStarted=false; announce('Picked up joint '+jlabel(hit)+'. Arrow keys move it, Enter to drop, Escape to cancel.'); draw(); }
+    else if (hit && hit.support){ toast('Supports are fixed.'); announce('Supports are fixed and cannot move.'); }
+    else announce('No joint here to move.');
+  }
+  else if (S.tool==='inspect'){ if (hit) inspectNode(hit); else announce('No joint here to inspect.'); }
+  else if (S.tool==='delete'){ deleteAt(S.cursor, hit); }
+}
+canvas.addEventListener('keydown', ev=>{
+  const k=ev.key;
+  if (k>='1' && k<='5'){ ev.preventDefault(); setTool(tools[Number(k)-1]); return; }
+  if (k==='ArrowLeft'||k==='ArrowRight'||k==='ArrowUp'||k==='ArrowDown'){
+    ev.preventDefault();
+    const dx=(k==='ArrowLeft'?-GRID:(k==='ArrowRight'?GRID:0));
+    const dy=(k==='ArrowDown'?-GRID:(k==='ArrowUp'?GRID:0));
+    if (S.kbMove) moveHeldJoint(dx,dy); else moveCursor(dx,dy);
+    return;
+  }
+  if (k==='Enter'||k===' '){ ev.preventDefault(); keyActivate(); return; }
+  if (k==='Delete'||k==='Backspace'){ ev.preventDefault(); deleteAt(S.cursor, nodeAtCell(S.cursor.x,S.cursor.y)); return; }
+  if (k==='Escape'){
+    ev.preventDefault();
+    if (S.kbMove){ S.kbMove=null; announce('Move cancelled.'); draw(); }
+    else if (S.memberFirst){ S.memberFirst=null; announce('Selection cleared.'); draw(); }
+  }
+});
 function segDist(p,a,b){
   const vx=b.x-a.x, vy=b.y-a.y;
   const L2=vx*vx+vy*vy;
@@ -898,10 +1035,13 @@ const tools=['joint','member','move','inspect','delete'];
 tools.forEach(t=>{
   document.getElementById('tool'+t[0].toUpperCase()+t.slice(1)).addEventListener('click',()=>setTool(t));
 });
+const toolNames={joint:'Add joint', member:'Add member', move:'Move joint', inspect:'Inspect joint', delete:'Remove'};
 function setTool(t){
   S.tool=t; S.memberFirst=null;
   tools.forEach(x=>document.getElementById('tool'+x[0].toUpperCase()+x.slice(1)).classList.toggle('armed', x===t));
   canvas.style.cursor = t==='joint'?'copy':(t==='move'?'move':'crosshair');
+  canvas.setAttribute('aria-label', 'Truss drawing grid. Active tool: '+toolNames[t]+'. Arrow keys move the cursor; Enter acts at the cursor.');
+  announce(toolNames[t]+' tool.');
   draw();
 }
 document.getElementById('toolClear').addEventListener('click',()=>{
