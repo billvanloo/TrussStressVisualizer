@@ -480,14 +480,14 @@ function renderBOM(){
   const body=document.getElementById('bomBody');
   if (!body) return;
   const nodes=[...S.nodes].sort((a,b)=> a.x-b.x || a.y-b.y);
-  const label=new Map(); nodes.forEach((n,i)=>label.set(n.id,String(i+1)));
+  const label=jointLabels();
   const ok = solved && solved.status==='ok';
   const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   let h='';
 
   // Joints
   h+='<div class="bom-sec">Joints ('+nodes.length+')</div>';
-  h+='<table><thead><tr><th>#</th><th>X in</th><th>Y in</th><th>Support</th></tr></thead><tbody>';
+  h+='<table><thead><tr><th>ID</th><th>X in</th><th>Y in</th><th>Support</th></tr></thead><tbody>';
   for (const n of nodes){
     const sup = n.support==='pin'?'Pin ▲':(n.support==='roller'?'Roller ○':'—');
     h+='<tr><td>'+label.get(n.id)+'</td><td class="num">'+n.x.toFixed(1)+'</td><td class="num">'+n.y.toFixed(1)+'</td><td>'+sup+'</td></tr>';
@@ -520,7 +520,7 @@ function renderBOM(){
   // Supports
   const sups=nodes.filter(n=>n.support);
   h+='<div class="bom-sec">Supports ('+sups.length+')</div>';
-  h+='<table><thead><tr><th>#</th><th>Type</th><th>At in</th><th>Reaction N</th></tr></thead><tbody>';
+  h+='<table><thead><tr><th>ID</th><th>Type</th><th>At in</th><th>Reaction N</th></tr></thead><tbody>';
   for (const n of sups){
     const type=n.support==='pin'?'Pin ▲':'Roller ○';
     let r='—';
@@ -579,9 +579,21 @@ function updateDRO(){
   msg.textContent=text;
   msg.classList.toggle('err', solved.status!=='ok'&&solved.status!=='empty');
 }
+// Spreadsheet-style letters: 0->A, 25->Z, 26->AA. Joints are labelled in
+// reading order (left-to-right, then bottom-to-top) so labels stay intuitive.
+function colLabel(i){
+  let s=''; i++;
+  while (i>0){ i--; s=String.fromCharCode(65+(i%26))+s; i=Math.floor(i/26); }
+  return s;
+}
+function jointLabels(){
+  const sorted=[...S.nodes].sort((a,b)=> a.x-b.x || a.y-b.y);
+  const m=new Map(); sorted.forEach((n,i)=>m.set(n.id, colLabel(i)));
+  return m;
+}
 function memberName(mb){
-  const a=nodeById(mb.a), b=nodeById(mb.b);
-  return '('+a.x.toFixed(1)+','+a.y.toFixed(1)+')–('+b.x.toFixed(1)+','+b.y.toFixed(1)+')';
+  const L=jointLabels();
+  return (L.get(mb.a)||'?')+'–'+(L.get(mb.b)||'?');
 }
 
 /* =====================================================================
@@ -697,6 +709,7 @@ function draw(){
     }
   }
   // nodes
+  const nodeLabels=jointLabels();
   for (const n of S.nodes){
     const x=wx(n.x), y=wy(n.y);
     if (n.support==='pin'){
@@ -715,6 +728,12 @@ function draw(){
     ctx.fillStyle = (S.inspected===n.id)?'#1D5FA8':'#F6F5F0';
     ctx.fill();
     ctx.lineWidth=2; ctx.strokeStyle='#23272C'; ctx.stroke();
+    // joint letter label, offset up-right, with a light halo for legibility
+    const lbl=nodeLabels.get(n.id)||'';
+    ctx.font='700 12px "Avenir Next","Segoe UI",system-ui,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.lineWidth=3; ctx.strokeStyle='rgba(246,245,240,.9)';
+    ctx.strokeText(lbl, x+9, y-7);
+    ctx.fillStyle='#23272C'; ctx.fillText(lbl, x+9, y-7);
   }
 }
 
@@ -756,7 +775,7 @@ function drawFBD(){
   fctx.fillStyle='#23272C';
   fctx.beginPath(); fctx.arc(cx,cy,5,0,Math.PI*2); fctx.fill();
   let sx=0, sy=0;
-  let html='<div style="font:700 10px var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:#5A6068;margin-bottom:4px">Joint ('+n.x.toFixed(1)+', '+n.y.toFixed(1)+')</div>';
+  let html='<div style="font:700 10px var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:#5A6068;margin-bottom:4px">Joint '+(jointLabels().get(n.id)||'?')+' ('+n.x.toFixed(1)+', '+n.y.toFixed(1)+')</div>';
   for (const v of vectors){
     sx+=v.fx; sy+=v.fy;
     const mag=Math.hypot(v.fx,v.fy);
@@ -806,7 +825,9 @@ canvas.addEventListener('pointerdown', ev=>{
     if (hit) { toast('A joint is already there.'); return; }
     const x=snap(w.x), y=snap(w.y);
     if (x<WORLD.x0||x>WORLD.x1||y<WORLD.y0+0.5||y>WORLD.y1-0.25) return;
-    S.nodes.push({id:uid('n'), x, y});
+    const nid=uid('n');
+    S.nodes.push({id:nid, x, y});
+    splitMembersAt(nid);
     resolve(); return;
   }
   if (S.tool==='member'){
@@ -855,7 +876,37 @@ canvas.addEventListener('pointermove', ev=>{
   n.y=snap(Math.max(WORLD.y0+0.5,Math.min(WORLD.y1-0.25,w.y)));
   resolve();
 });
-canvas.addEventListener('pointerup', ()=>{ S.drag=null; });
+canvas.addEventListener('pointerup', ()=>{
+  const dropped=S.drag; S.drag=null;
+  // A joint dragged onto an existing member should splice into it.
+  if (dropped && splitMembersAt(dropped)) resolve();
+});
+function hasMember(a,b){ return S.members.some(mb=>(mb.a===a&&mb.b===b)||(mb.a===b&&mb.b===a)); }
+// If joint `nid` lies along any member (collinear, strictly between the ends),
+// split that member in two so the joint is actually connected. Returns the
+// number of members split. Prevents the "looks connected but isn't" mechanism.
+function splitMembersAt(nid){
+  const n=nodeById(nid); if (!n) return 0;
+  let split=0;
+  for (const mb of S.members.slice()){
+    if (mb.a===nid || mb.b===nid) continue;
+    const a=nodeById(mb.a), b=nodeById(mb.b);
+    if (!a||!b) continue;
+    const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy;
+    if (!L2) continue;
+    const t=((n.x-a.x)*vx+(n.y-a.y)*vy)/L2;
+    if (t<=1e-6 || t>=1-1e-6) continue;                 // at or past an endpoint
+    const perp=Math.hypot(n.x-(a.x+t*vx), n.y-(a.y+t*vy));
+    if (perp>0.03) continue;                            // not on the member
+    S.members=S.members.filter(x=>x.id!==mb.id);
+    if (!hasMember(mb.a,nid)) S.members.push({id:uid('m'), a:mb.a, b:nid});
+    if (!hasMember(nid,mb.b)) S.members.push({id:uid('m'), a:nid, b:mb.b});
+    split++;
+  }
+  if (split) toast(split>1 ? 'Joint placed at a crossing — split '+split+' members.'
+                            : 'Joint placed on a member — split it in two.');
+  return split;
+}
 function segDist(p,a,b){
   const vx=b.x-a.x, vy=b.y-a.y;
   const L2=vx*vx+vy*vy;
