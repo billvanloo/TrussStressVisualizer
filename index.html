@@ -298,7 +298,7 @@
     <button class="close" id="modalClose">Close</button>
     <h2 id="modalTitle">How to use the visualizer</h2>
     <p><strong>The setup mirrors the class bridge project:</strong> a 6-inch span between a pin support (left, ▲) and a roller (right, ○). The Tester load case models the Vernier tester's plate pulling straight down at the center of your deck, and predicts the load at which your first member fails.</p>
-    <p><strong>Build:</strong> tap the sheet to add joints (they snap to the grid — ½ inch by default; switch to ¼ or ⅛ inch under Grid for finer placement). Switch to the Member tool and tap two joints to connect them; tapping empty space with the Member tool adds a joint there first. The bottom row of joints between the supports is your deck.</p>
+    <p><strong>Build:</strong> tap the sheet to add joints (they snap to the grid — ½ inch by default; switch to ¼ or ⅛ inch under Grid for finer placement). Switch to the Member tool and tap joints one after another to draw connected members; tapping empty space adds a joint there first. Tap the highlighted joint again (or press Esc) to stop the chain. The bottom row of joints between the supports is your deck.</p>
     <p><strong>Read it:</strong> blue members are in tension (being stretched), red members are in compression (being squeezed). Thicker lines are closer to their limit. A member past its limit gets an ✕.</p>
     <ul>
       <li>A solvable truss follows <strong>2 × joints = members + 3</strong>. Too few members → mechanism (collapses). Too many → indeterminate (can't be solved by the method of joints).</li>
@@ -868,9 +868,10 @@ canvas.addEventListener('pointerdown', ev=>{
     if (!S.memberFirst){ S.memberFirst=hit.id; if (created) resolve(); else draw(); return; }
     if (S.memberFirst===hit.id){ S.memberFirst=null; draw(); return; }
     const dup=S.members.some(mb=>(mb.a===S.memberFirst&&mb.b===hit.id)||(mb.b===S.memberFirst&&mb.a===hit.id));
-    if (dup){ toast('Those joints are already connected.'); S.memberFirst=null; if (created) resolve(); else draw(); return; }
+    // Members chain: the joint just tapped becomes the start of the next member.
+    if (dup){ toast('Those joints are already connected — continuing from here.'); S.memberFirst=hit.id; if (created) resolve(); else draw(); return; }
     S.members.push({id:uid('m'), a:S.memberFirst, b:hit.id});
-    S.memberFirst=null;
+    S.memberFirst=hit.id;
     resolve(); return;
   }
   if (S.tool==='move'){
@@ -960,6 +961,10 @@ function setTool(t){
   canvas.style.cursor = t==='joint'?'copy':(t==='move'?'move':'crosshair');
   draw();
 }
+// Esc ends a member chain without leaving the Member tool.
+document.addEventListener('keydown',ev=>{
+  if (ev.key==='Escape' && S.memberFirst){ S.memberFirst=null; draw(); }
+});
 const clearBtn=document.getElementById('toolClear');
 let clearArm=null;
 function resetClearBtn(){
