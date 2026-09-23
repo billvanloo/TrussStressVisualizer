@@ -10,7 +10,7 @@ A method-of-joints truss analyzer — a tool for engineering education covering 
 
 ## Features
 
-- Build joints and members on a ½-inch grid; live method-of-joints solve on every change
+- Build joints and members on a ½, ¼, or ⅛-inch grid (the Member tool adds a joint when you tap empty space); live method-of-joints solve on every change
 - Blue = tension, red = compression; line thickness scales with utilization; ✕ marks over-limit members; the predicted first-to-fail member is dash-highlighted
 - **Tester load case** mirrors the physical rig: center pull at the deck, a two-truss-planes toggle that splits the load, failure-load prediction, and a warning when the prediction exceeds the tester's 1000 N load cell
 - Moving load mode steps a point load across the deck joints

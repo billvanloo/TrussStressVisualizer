@@ -34,6 +34,7 @@
 
   main{flex:1;display:flex;min-height:0}
   #palette{width:168px;border-right:1.5px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;background:#F1EFE8}
+  #palette>*{flex-shrink:0}   /* scroll the palette instead of crushing its controls on short screens */
   .pal-label{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:6px 0 2px}
   .toolbtn{border:1.5px solid var(--ink);background:#fff;border-radius:4px;padding:8px;cursor:pointer;font:600 12px var(--font-ui);letter-spacing:.04em;text-transform:uppercase;text-align:left}
   .toolbtn:hover,.toolbtn.armed{background:var(--ink);color:#fff}
@@ -194,17 +195,24 @@
     <button class="toolbtn danger" id="toolDelete">✕ Remove</button>
     <button class="toolbtn" id="toolClear">Clear all</button>
 
+    <div class="pal-label">Grid</div>
+    <div class="lmode" id="gridSel">
+      <button data-g="0.5" class="on" aria-label="Half-inch grid">½″</button>
+      <button data-g="0.25" aria-label="Quarter-inch grid">¼″</button>
+      <button data-g="0.125" aria-label="Eighth-inch grid">⅛″</button>
+    </div>
+
     <div class="pal-label">Load case</div>
     <div class="lmode">
       <button id="lmVsmt" class="on">Tester</button>
       <button id="lmMoving">Moving</button>
     </div>
     <div id="vsmtCtl">
-      <div class="palnum" style="margin-top:6px">Applied <input id="appliedLoad" type="number" value="100" min="1" max="2000" step="10"> N</div>
+      <div class="palnum" style="margin-top:6px">Applied <input id="appliedLoad" type="number" value="100" min="10" max="2000" step="10"> N</div>
       <label class="chk" style="margin-top:6px"><input type="checkbox" id="twoTrussChk" checked> Two truss planes — each side carries half the tester load</label>
     </div>
     <div id="movingCtl" style="display:none">
-      <div class="palnum" style="margin-top:6px">Load <input id="movingLoad" type="number" value="100" min="1" max="2000" step="10"> N</div>
+      <div class="palnum" style="margin-top:6px">Load <input id="movingLoad" type="number" value="100" min="10" max="2000" step="10"> N</div>
       <div class="pal-label">Position</div>
       <div class="stepbtns"><button id="stepL">◀</button><button id="stepR">▶</button></div>
       <div class="palnote">Steps the load across the deck joints, like a vehicle crossing.</div>
@@ -218,7 +226,7 @@
       <option value="90" selected>PLA (3D printed) — 90 N</option>
       <option value="custom">Custom…</option>
     </select>
-    <div class="palnum">Limit <input id="limitInput" type="number" value="90" min="1" max="5000" step="5"> N</div>
+    <div class="palnum">Limit <input id="limitInput" type="number" value="90" min="5" max="5000" step="5"> N</div>
     <div class="palnote">How much force do you expect the material to hold in tension for the cross-section you are designing with?</div>
 
     <div class="pal-label">Material budget</div>
@@ -236,7 +244,7 @@
   <div id="stage">
     <div id="canvasWrap">
       <canvas id="board"></canvas>
-      <div id="hint">Span: 6.00 in between supports (pin ▲ left, roller ○ right). Tap the sheet to add joints on the ½-inch grid; use the Member tool to connect them.</div>
+      <div id="hint">Span: 6.00 in between supports (pin ▲ left, roller ○ right). Tap the sheet to add joints on the grid; connect them with the Member tool.</div>
       <div id="toast" role="status" aria-live="polite"></div>
     </div>
     <div id="dro">
@@ -290,7 +298,7 @@
     <button class="close" id="modalClose">Close</button>
     <h2 id="modalTitle">How to use the visualizer</h2>
     <p><strong>The setup mirrors the class bridge project:</strong> a 6-inch span between a pin support (left, ▲) and a roller (right, ○). The Tester load case models the Vernier tester's plate pulling straight down at the center of your deck, and predicts the load at which your first member fails.</p>
-    <p><strong>Build:</strong> tap the sheet to add joints (they snap to the ½-inch grid). Switch to the Member tool and tap two joints to connect them. The bottom row of joints between the supports is your deck.</p>
+    <p><strong>Build:</strong> tap the sheet to add joints (they snap to the grid — ½ inch by default; switch to ¼ or ⅛ inch under Grid for finer placement). Switch to the Member tool and tap joints one after another to draw connected members; tapping empty space adds a joint there first. Tap the highlighted joint again (or press Esc) to stop the chain. The bottom row of joints between the supports is your deck.</p>
     <p><strong>Read it:</strong> blue members are in tension (being stretched), red members are in compression (being squeezed). Thicker lines are closer to their limit. A member past its limit gets an ✕.</p>
     <ul>
       <li>A solvable truss follows <strong>2 × joints = members + 3</strong>. Too few members → mechanism (collapses). Too many → indeterminate (can't be solved by the method of joints).</li>
@@ -411,7 +419,6 @@ function tFmt(n){
    PROJECT CONSTANTS — matches the class bridge project & Vernier tester
    ===================================================================== */
 const SPAN = 6.0;           // inches between supports
-const GRID = 0.5;           // inch snap grid
 const TESTER_CAP = 1000;    // N — Vernier load cell rating
 const WORLD = {x0:-1.25, x1:7.25, y0:-2.75, y1:3.75}; // inches visible
 
@@ -429,10 +436,13 @@ const S = {
   twoTruss:true,
   movingLoad:100, movingIdx:0,
   limit:90, budget:60,
+  grid:0.5,                // inch snap grid (0.5 | 0.25 | 0.125)
   drag:null,
   idc:0
 };
 function uid(p){ return p + (++S.idc); }
+// Joint coordinate in inches: one decimal on the ½-inch grid, up to three on finer grids.
+function fmtIn(v){ return Math.abs(v*10-Math.round(v*10))<1e-9 ? v.toFixed(1) : String(+v.toFixed(3)); }
 function nodeById(id){ return S.nodes.find(n=>n.id===id); }
 function deckJoints(){
   return S.nodes.filter(n=>Math.abs(n.y)<1e-9 && n.x>-1e-9 && n.x<SPAN+1e-9)
@@ -450,7 +460,7 @@ function currentLoads(){
     if (!deck.length) return {loads:[], perTruss:0, warn:'Add at least one deck joint (on the bottom chord between the supports) for the tester plate to pull on.'};
     let best=null;
     for (const n of deck){ const d=Math.abs(n.x-SPAN/2); if (!best||d<best.d) best={n,d}; }
-    const warn = best.d>0.76 ? 'No deck joint near midspan — the tester plate pulls at the center. Load applied at nearest deck joint ('+best.n.x.toFixed(1)+' in).' : null;
+    const warn = best.d>0.76 ? 'No deck joint near midspan — the tester plate pulls at the center. Load applied at nearest deck joint ('+fmtIn(best.n.x)+' in).' : null;
     const perTruss = S.applied * (S.twoTruss?0.5:1);
     return {loads:[{node:best.n.id, fx:0, fy:-perTruss}], perTruss, node:best.n.id, warn};
   } else {
@@ -490,7 +500,7 @@ function renderBOM(){
   h+='<table><thead><tr><th>ID</th><th>X in</th><th>Y in</th><th>Support</th></tr></thead><tbody>';
   for (const n of nodes){
     const sup = n.support==='pin'?'Pin ▲':(n.support==='roller'?'Roller ○':'—');
-    h+='<tr><td>'+label.get(n.id)+'</td><td class="num">'+n.x.toFixed(1)+'</td><td class="num">'+n.y.toFixed(1)+'</td><td>'+sup+'</td></tr>';
+    h+='<tr><td>'+label.get(n.id)+'</td><td class="num">'+fmtIn(n.x)+'</td><td class="num">'+fmtIn(n.y)+'</td><td>'+sup+'</td></tr>';
   }
   h+='</tbody></table>';
 
@@ -528,7 +538,7 @@ function renderBOM(){
       if (n.support==='pin'){ const rr=solved.reactions.pin; r='('+tFmt(rr.x)+', '+tFmt(rr.y)+')'; }
       else { r='(0, '+tFmt(solved.reactions.roller.y)+')'; }
     }
-    h+='<tr><td>'+label.get(n.id)+'</td><td>'+type+'</td><td class="num">('+n.x.toFixed(1)+','+n.y.toFixed(1)+')</td><td class="num">'+r+'</td></tr>';
+    h+='<tr><td>'+label.get(n.id)+'</td><td>'+type+'</td><td class="num">('+fmtIn(n.x)+','+fmtIn(n.y)+')</td><td class="num">'+r+'</td></tr>';
   }
   h+='</tbody></table>';
 
@@ -621,15 +631,18 @@ function toWorld(p){ return {x:(p.x-OX)/PX, y:(OY-p.y)/PX}; }
 
 function draw(){
   ctx.fillStyle='#F6F5F0'; ctx.fillRect(0,0,CW,CH);
-  // grid
-  for (let x=Math.ceil(WORLD.x0/GRID)*GRID; x<=WORLD.x1; x+=GRID){
-    ctx.strokeStyle = (Math.abs(x-Math.round(x))<1e-9)?'#D8D5C8':'#E7E5DC';
-    ctx.lineWidth=1;
+  // grid: whole inches darkest, half inches lighter, finer lines faintest
+  const g=S.grid;
+  const gridColor=v=>Math.abs(v-Math.round(v))<1e-9?'#D8D5C8':(Math.abs(v*2-Math.round(v*2))<1e-9?'#E7E5DC':'#EEECE5');
+  ctx.lineWidth=1;
+  for (let i=Math.ceil(WORLD.x0/g); i*g<=WORLD.x1; i++){
+    const x=i*g;
+    ctx.strokeStyle=gridColor(x);
     ctx.beginPath(); ctx.moveTo(wx(x)+.5,0); ctx.lineTo(wx(x)+.5,CH); ctx.stroke();
   }
-  for (let y=Math.ceil(WORLD.y0/GRID)*GRID; y<=WORLD.y1; y+=GRID){
-    ctx.strokeStyle = (Math.abs(y-Math.round(y))<1e-9)?'#D8D5C8':'#E7E5DC';
-    ctx.lineWidth=1;
+  for (let i=Math.ceil(WORLD.y0/g); i*g<=WORLD.y1; i++){
+    const y=i*g;
+    ctx.strokeStyle=gridColor(y);
     ctx.beginPath(); ctx.moveTo(0,wy(y)+.5); ctx.lineTo(CW,wy(y)+.5); ctx.stroke();
   }
   // gap / span shading below deck
@@ -775,7 +788,7 @@ function drawFBD(){
   fctx.fillStyle='#23272C';
   fctx.beginPath(); fctx.arc(cx,cy,5,0,Math.PI*2); fctx.fill();
   let sx=0, sy=0;
-  let html='<div style="font:700 10px var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:#5A6068;margin-bottom:4px">Joint '+(jointLabels().get(n.id)||'?')+' ('+n.x.toFixed(1)+', '+n.y.toFixed(1)+')</div>';
+  let html='<div style="font:700 10px var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:#5A6068;margin-bottom:4px">Joint '+(jointLabels().get(n.id)||'?')+' ('+fmtIn(n.x)+', '+fmtIn(n.y)+')</div>';
   for (const v of vectors){
     sx+=v.fx; sy+=v.fy;
     const mag=Math.hypot(v.fx,v.fy);
@@ -807,37 +820,58 @@ function toast(msg){
   t.textContent=msg; t.style.opacity=1;
   clearTimeout(t._h); t._h=setTimeout(()=>t.style.opacity=0, 3000);
 }
-function snap(v){ return Math.round(v/GRID)*GRID; }
-function hitNode(w){
+function snap(v){ return Math.round(v/S.grid)*S.grid; }
+function hitNode(w, r=16){
   let best=null;
   for (const n of S.nodes){
     const d=Math.hypot(n.x-w.x,n.y-w.y)*PX;
-    if (d<16 && (!best||d<best.d)) best={n,d};
+    if (d<r && (!best||d<best.d)) best={n,d};
   }
   return best?best.n:null;
+}
+// Tap radius for tools that place joints: shrinks with the grid so a tap one
+// fine-grid step away from a joint places a new joint instead of grabbing it.
+function placeRadius(){ return Math.min(16, Math.max(6, S.grid*PX*0.5)); }
+function nodeAt(x,y){ return S.nodes.find(n=>Math.abs(n.x-x)<1e-6&&Math.abs(n.y-y)<1e-6)||null; }
+// Snap w to the grid and add a joint there. Returns {node, created}, or null if off the sheet.
+function placeJoint(w){
+  const x=snap(w.x), y=snap(w.y);
+  const existing=nodeAt(x,y);
+  if (existing) return {node:existing, created:false};
+  if (x<WORLD.x0||x>WORLD.x1||y<WORLD.y0+0.5||y>WORLD.y1-0.25) return null;
+  const n={id:uid('n'), x, y};
+  S.nodes.push(n);
+  splitMembersAt(n.id);
+  return {node:n, created:true};
 }
 canvas.addEventListener('pointerdown', ev=>{
   ev.preventDefault();
   canvas.setPointerCapture(ev.pointerId);
   const w=toWorld({x:ev.clientX-canvas.getBoundingClientRect().left, y:ev.clientY-canvas.getBoundingClientRect().top});
-  const hit=hitNode(w);
+  const placing=S.tool==='joint'||S.tool==='member';
+  let hit=hitNode(w, placing?placeRadius():16);
   if (S.tool==='joint'){
     if (hit) { toast('A joint is already there.'); return; }
-    const x=snap(w.x), y=snap(w.y);
-    if (x<WORLD.x0||x>WORLD.x1||y<WORLD.y0+0.5||y>WORLD.y1-0.25) return;
-    const nid=uid('n');
-    S.nodes.push({id:nid, x, y});
-    splitMembersAt(nid);
+    const p=placeJoint(w);
+    if (!p) return;
+    if (!p.created){ toast('A joint is already there.'); return; }
     resolve(); return;
   }
   if (S.tool==='member'){
-    if (!hit){ toast('Tap a joint. Members connect joint to joint.'); return; }
-    if (!S.memberFirst){ S.memberFirst=hit.id; draw(); return; }
+    let created=false;
+    if (!hit){
+      // Tapping empty space adds a joint there and uses it as this end of the member.
+      const p=placeJoint(w);
+      if (!p) return;
+      hit=p.node; created=p.created;
+    }
+    if (!S.memberFirst){ S.memberFirst=hit.id; if (created) resolve(); else draw(); return; }
     if (S.memberFirst===hit.id){ S.memberFirst=null; draw(); return; }
     const dup=S.members.some(mb=>(mb.a===S.memberFirst&&mb.b===hit.id)||(mb.b===S.memberFirst&&mb.a===hit.id));
-    if (dup){ toast('Those joints are already connected.'); S.memberFirst=null; draw(); return; }
+    // Members chain: the joint just tapped becomes the start of the next member.
+    if (dup){ toast('Those joints are already connected — continuing from here.'); S.memberFirst=hit.id; if (created) resolve(); else draw(); return; }
     S.members.push({id:uid('m'), a:S.memberFirst, b:hit.id});
-    S.memberFirst=null;
+    S.memberFirst=hit.id;
     resolve(); return;
   }
   if (S.tool==='move'){
@@ -927,6 +961,10 @@ function setTool(t){
   canvas.style.cursor = t==='joint'?'copy':(t==='move'?'move':'crosshair');
   draw();
 }
+// Esc ends a member chain without leaving the Member tool.
+document.addEventListener('keydown',ev=>{
+  if (ev.key==='Escape' && S.memberFirst){ S.memberFirst=null; draw(); }
+});
 const clearBtn=document.getElementById('toolClear');
 let clearArm=null;
 function resetClearBtn(){
@@ -976,6 +1014,12 @@ document.getElementById('limitInput').addEventListener('input',e=>{
   resolve();
 });
 document.getElementById('budgetInput').addEventListener('input',e=>{ S.budget=Number(e.target.value)||60; resolve(); });
+function setGrid(g){
+  S.grid=g;
+  document.querySelectorAll('#gridSel button').forEach(b=>b.classList.toggle('on', Number(b.dataset.g)===g));
+  draw();
+}
+document.querySelectorAll('#gridSel button').forEach(b=>b.addEventListener('click',()=>setGrid(Number(b.dataset.g))));
 
 /* =====================================================================
    EXPORTS
@@ -1069,7 +1113,7 @@ document.getElementById('btnReport').addEventListener('click',()=>{
 });
 document.getElementById('btnSave').addEventListener('click',()=>{
   const data={version:1, nodes:S.nodes, members:S.members, limit:S.limit, budget:S.budget,
-    loadMode:S.loadMode, applied:S.applied, movingLoad:S.movingLoad, twoTruss:S.twoTruss};
+    loadMode:S.loadMode, applied:S.applied, movingLoad:S.movingLoad, twoTruss:S.twoTruss, grid:S.grid};
   const a=document.createElement('a');
   a.download='truss-design.json';
   a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data,null,2));
@@ -1087,6 +1131,7 @@ document.getElementById('fileInput').addEventListener('change',ev=>{
       S.nodes=d.nodes; S.members=d.members;
       if (d.limit){ S.limit=d.limit; document.getElementById('limitInput').value=d.limit; document.getElementById('materialSel').value='custom'; }
       if (d.budget){ S.budget=d.budget; document.getElementById('budgetInput').value=d.budget; }
+      if ([0.5,0.25,0.125].includes(d.grid)) setGrid(d.grid);
       if (d.twoTruss!=null){ S.twoTruss=d.twoTruss; document.getElementById('twoTrussChk').checked=d.twoTruss; }
       let maxN=0; [...S.nodes,...S.members].forEach(o=>{const mm=/\d+$/.exec(o.id); if(mm) maxN=Math.max(maxN,Number(mm[0]));});
       S.idc=maxN;
